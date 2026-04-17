@@ -74,28 +74,28 @@
         reader.readAsArrayBuffer(file);
     });
 
-    function processText(text) {
-        // Lógica de búsqueda mediante RegEx (Expresiones Regulares)
-        // Nota: Los PDFs de la DIAN tienen una estructura variable, esto busca patrones comunes.
-        
-        extractedData = {
-            "NIT": text.match(/NIT\s*(\d+)/i)?.[1] || "No encontrado",
-            "Tipo de contribuyente": text.match(/Tipo de contribuyente\s*([^\d]+)/i)?.[1]?.trim().substring(0,20) || "Persona Natural/Jurídica",
-            "Primer apellido": text.match(/Primer apellido\s*([A-Z]+)/i)?.[1] || "",
-            "Segundo apellido": text.match(/Segundo apellido\s*([A-Z]+)/i)?.[1] || "",
-            "Primer nombre": text.match(/Primer nombre\s*([A-Z]+)/i)?.[1] || "",
-            "Otros nombres": text.match(/Otros nombres\s*([A-Z]+)/i)?.[1] || "",
-            "Razón social": text.match(/Razón social\s*([A-Z\s]+?)(?=Primer|$)/i)?.[1]?.trim() || "",
-            "País": "COLOMBIA",
-            "Departamento": text.match(/Departamento\s*([A-Z\s]+?)(?=Ciudad|$)/i)?.[1]?.trim() || "",
-            "Ciudad/Municipio": text.match(/Ciudad\/Municipio\s*([A-Z\s]+?)(?=Dirección|$)/i)?.[1]?.trim() || "",
-            "Dirección principal": text.match(/Dirección principal\s*([^\n]+)/i)?.[1]?.trim() || "",
-            "Correo electrónico": text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || "",
-            "Actividad económica": text.match(/Actividad económica\s*(\d{4})/i)?.[1] || ""
-        };
+function processText(text) {
+    // Normalizamos el texto eliminando saltos de línea innecesarios para facilitar la búsqueda
+    const cleanText = text.replace(/\n/g, " ").replace(/\s+/g, " ");
 
-        displayData();
-    }
+    extractedData = {
+        "NIT": cleanText.match(/5\. Número de Identificación Tributaria \(NIT\)\s*([\d.]+)/i)?.[1] || "No encontrado",
+        "Tipo de contribuyente": cleanText.match(/24\. Tipo de contribuyente\s*([A-Z\s]+?)(?=25|$)/i)?.[1]?.trim() || "No encontrado",
+        "Primer apellido": cleanText.match(/31\. Primer apellido\s*([A-Z]+)/i)?.[1] || "",
+        "Segundo apellido": cleanText.match(/32\. Segundo apellido\s*([A-Z]+)/i)?.[1] || "",
+        "Primer nombre": cleanText.match(/33\. Primer nombre\s*([A-Z]+)/i)?.[1] || "",
+        "Otros nombres": cleanText.match(/34\. Otros nombres\s*([A-Z\s]*?)(?=35|$)/i)?.[1]?.trim() || "",
+        "Razón social": cleanText.match(/35\. Razón social\s*([A-Z\s]*?)(?=36|$)/i)?.[1]?.trim() || "N/A (Persona Natural)",
+        "País": cleanText.match(/38\. Pais\s*([A-Z]+)/i)?.[1] || "COLOMBIA",
+        "Departamento": cleanText.match(/39\. Departamento\s*([A-Z]+)/i)?.[1] || "",
+        "Ciudad/Municipio": cleanText.match(/40\. Ciudad\/Municipio\s*([A-Z]+)/i)?.[1] || "",
+        "Dirección principal": cleanText.match(/41\. Dirección principal\s*([^42]+)/i)?.[1]?.trim() || "",
+        "Correo electrónico": cleanText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || "",
+        "Actividad económica": cleanText.match(/46\. Código\s*(\d{4})/i)?.[1] || "No encontrada"
+    };
+
+    displayData();
+}
 
     function displayData() {
         const tableBody = document.getElementById('tableBody');

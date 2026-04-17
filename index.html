@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extractor RUT a Excel - Página 1</title>
+    <title>Extractor RUT a Excel - Página 1 (Limpio)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
@@ -28,7 +28,7 @@
 
     <div class="upload-section" onclick="document.getElementById('pdfUpload').click()">
         <p><strong>Seleccione el PDF del RUT</strong></p>
-        <p style="font-size: 12px; color: #666;">Se extraerán los datos de la primera página hacia un archivo Excel</p>
+        <p style="font-size: 12px; color: #666;">Los campos sin información quedarán en blanco en el Excel resultante.</p>
         <input type="file" id="pdfUpload" accept=".pdf" style="display:none">
     </div>
 
@@ -59,7 +59,7 @@
                 const typedarray = new Uint8Array(this.result);
                 const pdf = await pdfjsLib.getDocument(typedarray).promise;
                 
-                // Solo página 1
+                // Procesar únicamente la primera página
                 const page = await pdf.getPage(1);
                 const textContent = await page.getTextContent();
                 const fullText = textContent.items.map(item => item.str).join(" ");
@@ -72,26 +72,39 @@
         reader.readAsArrayBuffer(file);
     });
 
+    function cleanValue(val) {
+        // Si el valor no existe, es "N/A" o solo contiene espacios, devolvemos un string vacío
+        if (!val || val.trim().toUpperCase() === "N/A") return "";
+        return val.trim();
+    }
+
     function processRUT(text) {
         const cleanText = text.replace(/\n/g, " ").replace(/\s+/g, " ");
 
-        extractedData = {
+        // Extracción inicial con RegEx
+        const rawData = {
             "Número de Identificación Tributaria (NIT)": cleanText.match(/5\.\s*Número\s*de\s*Identificación\s*Tributaria\s*\(NIT\)\s*([\d.]+)/i)?.[1] || 
-                                                         cleanText.match(/26\.\s*Número\s*de\s*Identificación\s*([\d.]+)/i)?.[1] || "No detectado",
-            "Tipo de contribuyente": cleanText.match(/24\.\s*Tipo\s*de\s*contribuyente\s*([A-Z\s]+?)(?=25|$)/i)?.[1]?.trim() || "Persona Natural/Jurídica",
-            "Primer apellido": cleanText.match(/31\.\s*Primer\s*apellido\s*([A-Z]+)/i)?.[1] || "",
-            "Segundo apellido": cleanText.match(/32\.\s*Segundo\s*apellido\s*([A-Z]+)/i)?.[1] || "",
-            "Primer nombre": cleanText.match(/33\.\s*Primer\s*nombre\s*([A-Z]+)/i)?.[1] || "",
-            "Otros nombres": cleanText.match(/34\.\s*(?:Otros|Ovos)\s*nombres\s*([A-Z\s]+?)(?=35|$)/i)?.[1]?.trim() || "",
-            "Razón social": cleanText.match(/35\.\s*Razón\s*social\s*([A-Z\s]+?)(?=36|$)/i)?.[1]?.trim() || 
-                            cleanText.match(/36\.\s*Nombre\s*comercial\s*([A-Z\s]+?)(?=37|$)/i)?.[1]?.trim() || "N/A",
-            "País": cleanText.match(/38\.\s*Pa[íi]s\s*([A-Z]+)/i)?.[1] || "COLOMBIA",
-            "Departamento": (cleanText.match(/39\.\s*Departamento\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
-            "Ciudad/Municipio": (cleanText.match(/40\.\s*Ciudad\/Municipio\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
-            "Dirección principal": cleanText.match(/41\.\s*Dirección\s*principal\s*([^42]+)/i)?.[1]?.trim() || "",
-            "Correo electrónico": cleanText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || "",
-            "Actividad económica": cleanText.match(/46\.\s*Código\s*(\d{4})/i)?.[1] || ""
+                                                         cleanText.match(/26\.\s*Número\s*de\s*Identificación\s*([\d.]+)/i)?.[1],
+            "Tipo de contribuyente": cleanText.match(/24\.\s*Tipo\s*de\s*contribuyente\s*([A-Z\s]+?)(?=25|$)/i)?.[1],
+            "Primer apellido": cleanText.match(/31\.\s*Primer\s*apellido\s*([A-Z]+)/i)?.[1],
+            "Segundo apellido": cleanText.match(/32\.\s*Segundo\s*apellido\s*([A-Z]+)/i)?.[1],
+            "Primer nombre": cleanText.match(/33\.\s*Primer\s*nombre\s*([A-Z]+)/i)?.[1],
+            "Otros nombres": cleanText.match(/34\.\s*(?:Otros|Ovos)\s*nombres\s*([A-Z\s]+?)(?=35|$)/i)?.[1],
+            "Razón social": cleanText.match(/35\.\s*Razón\s*social\s*([A-Z\s\.\&]+?)(?=36|$)/i)?.[1] || 
+                            cleanText.match(/36\.\s*Nombre\s*comercial\s*([A-Z\s\.\&]+?)(?=37|$)/i)?.[1],
+            "País": cleanText.match(/38\.\s*Pa[íi]s\s*([A-Z]+)/i)?.[1],
+            "Departamento": (cleanText.match(/39\.\s*Departamento\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, ''),
+            "Ciudad/Municipio": (cleanText.match(/40\.\s*Ciudad\/Municipio\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, ''),
+            "Dirección principal": cleanText.match(/41\.\s*Dirección\s*principal\s*([^42]+)/i)?.[1],
+            "Correo electrónico": cleanText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0],
+            "Actividad económica": cleanText.match(/46\.\s*Código\s*(\d{4})/i)?.[1]
         };
+
+        // Aplicamos la limpieza para que los N/A o nulos queden en blanco
+        extractedData = {};
+        for (const [key, value] of Object.entries(rawData)) {
+            extractedData[key] = cleanValue(value);
+        }
 
         renderTable();
     }
@@ -108,22 +121,18 @@
     }
 
     function downloadExcel() {
-        // Convertir el objeto extraído a un formato que SheetJS entienda (Array de Arrays)
         const dataArray = [
             Object.keys(extractedData),
             Object.values(extractedData)
         ];
 
-        // Crear libro y hoja de trabajo
         const wb = XLSX.utils.book_new();
         const ws = XLSX.utils.aoa_to_sheet(dataArray);
 
-        // Añadir hoja al libro
         XLSX.utils.book_append_sheet(wb, ws, "Datos RUT");
 
-        // Generar archivo y descargar
-        const nitDesc = extractedData["Número de Identificación Tributaria (NIT)"].replace(/\./g, '');
-        XLSX.writeFile(wb, `RUT_P1_${nitDesc}.xlsx`);
+        const nitFile = (extractedData["Número de Identificación Tributaria (NIT)"] || "Sin_NIT").replace(/\./g, '');
+        XLSX.writeFile(wb, `RUT_P1_${nitFile}.xlsx`);
     }
 </script>
 </body>

@@ -2,98 +2,142 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Extractor RUT Universal - Referencia TICLAM</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extractor RUT Pro - TICLAM & Naturales</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        :root { --dian: #003366; }
-        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
-        .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        h1 { color: var(--dian); text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-        .drop-zone { border: 2px dashed var(--dian); padding: 40px; text-align: center; cursor: pointer; background: #fafafa; border-radius: 8px; }
-        #status { text-align: center; margin: 20px 0; font-weight: bold; color: #555; }
-        .btn-xlsx { display: none; width: 100%; background: #1D6F42; color: white; border: none; padding: 15px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; }
+        :root { --primary: #003366; --accent: #1D6F42; --bg: #f8f9fa; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); margin: 0; padding: 20px; display: flex; justify-content: center; }
+        .app-container { width: 100%; max-width: 900px; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
+        header { text-align: center; margin-bottom: 30px; border-bottom: 3px solid var(--primary); padding-bottom: 15px; }
+        h1 { color: var(--primary); margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }
+        .drop-zone { border: 2px dashed #ccc; padding: 40px; text-align: center; border-radius: 12px; cursor: pointer; transition: all 0.3s; background: #fafafa; }
+        .drop-zone:hover { border-color: var(--primary); background: #f0f4f8; }
+        #status { text-align: center; margin: 20px 0; font-weight: 600; color: #555; height: 24px; }
+        .result-table { width: 100%; border-collapse: collapse; margin-top: 20px; display: none; font-size: 13px; }
+        .result-table th, .result-table td { border: 1px solid #eee; padding: 12px; text-align: left; }
+        .result-table th { background: var(--primary); color: white; width: 40%; }
+        .btn-excel { display: none; width: 100%; background: var(--accent); color: white; border: none; padding: 16px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 25px; transition: transform 0.2s; }
+        .btn-excel:hover { transform: translateY(-2px); filter: brightness(1.1); }
+        .footer-note { font-size: 11px; color: #888; text-align: center; margin-top: 20px; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h1>Extractor de Datos RUT (Página 1)</h1>
-    <div class="drop-zone" onclick="document.getElementById('fileIn').click()">
-        Arrastre aquí el RUT de TICLAM o similar
+<div class="app-container">
+    <header>
+        <h1>Extracción Inteligente RUT (Página 1)</h1>
+    </header>
+
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileIn').click()">
+        <p style="margin:0; font-size: 16px;"><strong>Click o arrastre el archivo PDF aquí</strong></p>
+        <p style="color: #888; font-size: 13px;">Compatible con RUT de Empresas (S.A.S) y Personas Naturales</p>
         <input type="file" id="fileIn" accept=".pdf" style="display:none">
     </div>
-    <div id="status">Listo para procesar</div>
-    <button id="dlBtn" class="btn-xlsx" onclick="exportarExcel()">DESCARGAR EXCEL (.xlsx)</button>
+
+    <div id="status">Esperando archivo...</div>
+    
+    <table id="dataTable" class="result-table">
+        <tbody id="tableBody"></tbody>
+    </table>
+
+    <button id="dlBtn" class="btn-excel" onclick="exportarExcel()">DESCARGAR RESULTADO EN EXCEL (.xlsx)</button>
+
+    <div class="footer-note">
+        El sistema procesa la información localmente. Ningún dato es enviado a servidores externos.
+    </div>
 </div>
 
 <script>
     const pdfjsLib = window['pdfjs-dist/build/pdf'];
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
     
-    let datosFinales = {};
+    let datosExtraidos = {};
 
     document.getElementById('fileIn').addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        document.getElementById('status').innerText = "Procesando página 1...";
+        document.getElementById('status').innerText = "Procesando documento...";
         const reader = new FileReader();
         reader.onload = async function() {
-            const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
-            const page = await pdf.getPage(1);
-            const textContent = await page.getTextContent();
-            const rawText = textContent.items.map(s => s.str).join(" ");
-            
-            extraerLogicaUniversal(rawText);
+            try {
+                const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
+                const page = await pdf.getPage(1);
+                const textContent = await page.getTextContent();
+                const rawText = textContent.items.map(s => s.str).join(" ");
+                
+                analizarRUT(rawText);
+            } catch (err) {
+                document.getElementById('status').innerText = "Error: El archivo no se pudo leer.";
+            }
         };
         reader.readAsArrayBuffer(file);
     });
 
-    function extraerLogicaUniversal(text) {
-        // Normalización para limpiar espacios DIAN
+    function limpiarUbicacion(val) {
+        if (!val) return "";
+        // Elimina códigos numéricos al inicio (ej: "169 Antioquia" -> "Antioquia")
+        return val.replace(/^\d+\s*/, '').trim().toUpperCase();
+    }
+
+    function analizarRUT(text) {
         const t = text.replace(/\s+/g, " ");
 
-        // 1. Extraer NIT (quitando el último dígito DV si es necesario como en tu ejemplo)
-        let nitFull = t.match(/NIT\s*\)?\s*([\d\s.]+)/i)?.[1].replace(/[\s.]/g, '') || "";
-        let nitLimpio = nitFull.length > 9 ? nitFull.substring(0, nitFull.length - 1) : nitFull;
+        // Lógica de NIT (Especial para espacios en TICLAM)
+        let nitMatch = t.match(/NIT\s*\)?\s*([\d\s.]+)/i);
+        let nitFull = nitMatch ? nitMatch[1].replace(/[\s.]/g, '') : "";
+        // Siguiendo tu ejemplo manual: si tiene DV al final, lo quitamos
+        let nitLimpio = (nitFull.length >= 10) ? nitFull.substring(0, nitFull.length - 1) : nitFull;
 
-        // 2. Determinar si es Jurídica o Natural
-        const esJuridica = t.toUpperCase().includes("PERSONA JURÍDICA") || t.toUpperCase().includes("PERSONA JURIDICA");
+        const juridica = t.toUpperCase().includes("JURÍDICA") || t.toUpperCase().includes("JURIDICA");
 
         const raw = {
             "Número de Identificación Tributaria (NIT)": nitLimpio,
-            "Tipo de contribuyente": esJuridica ? "Persona Jurídica" : "Persona Natural",
-            "Primer apellido": esJuridica ? "" : (t.match(/31\.\s*Primer\s*apellido\s*([A-ZÑÁÉÍÓÚ]+)/i)?.[1] || ""),
-            "Segundo apellido": esJuridica ? "" : (t.match(/32\.\s*Segundo\s*apellido\s*([A-ZÑÁÉÍÓÚ]+)/i)?.[1] || ""),
-            "Primer nombre": esJuridica ? "" : (t.match(/33\.\s*Primer\s*nombre\s*([A-ZÑÁÉÍÓÚ]+)/i)?.[1] || ""),
-            "Otros nombres": esJuridica ? "" : (t.match(/34\.\s*(?:Otros|Ovos)\s*nombres\s*([^35]+)/i)?.[1]?.trim() || ""),
+            "Tipo de contribuyente": juridica ? "PERSONA JURÍDICA" : "PERSONA NATURAL",
+            "Primer apellido": juridica ? "" : (t.match(/31\.\s*Primer\s*apellido\s*([A-ZÑÁÉÍÓÚ]+)/i)?.[1] || ""),
+            "Segundo apellido": juridica ? "" : (t.match(/32\.\s*Segundo\s*apellido\s*([A-ZÑÁÉÍÓÚ]+)/i)?.[1] || ""),
+            "Primer nombre": juridica ? "" : (t.match(/33\.\s*Primer\s*nombre\s*([A-ZÑÁÉÍÓÚ]+)/i)?.[1] || ""),
+            "Otros nombres": juridica ? "" : (t.match(/34\.\s*(?:Otros|Ovos)\s*nombres\s*([^35]+)/i)?.[1]?.trim() || ""),
             "Razón social": t.match(/35\.\s*Razón\s*social\s*([^36]+)/i)?.[1]?.trim() || "",
             "País": "COLOMBIA",
-            "Departamento": (t.match(/39\.\s*Departamento\s*(\d*\s*[A-ZÑÁÉÍÓÚ\s]+?)(?=40|$)/i)?.[1] || "").replace(/\d/g, '').trim(),
-            "Ciudad/Municipio": (t.match(/40\.\s*Ciudad\/Municipio\s*(\d*\s*[A-ZÑÁÉÍÓÚ\s]+?)(?=41|$)/i)?.[1] || "").replace(/\d/g, '').trim(),
+            "Departamento": limpiarUbicacion(t.match(/39\.\s*Departamento\s*(\d*\s*[A-ZÑÁÉÍÓÚ\s]+?)(?=40|$)/i)?.[1]),
+            "Ciudad/Municipio": limpiarUbicacion(t.match(/40\.\s*Ciudad\/Municipio\s*(\d*\s*[A-ZÑÁÉÍÓÚ\s]+?)(?=41|$)/i)?.[1]),
             "Dirección principal": t.match(/41\.\s*Dirección\s*principal\s*([^42]+)/i)?.[1]?.trim() || "",
             "Correo electrónico": t.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || "",
             "Actividad económica": t.match(/46\.\s*Código\s*(\d{4})/i)?.[1] || ""
         };
 
-        // Limpieza de valores N/A o etiquetas residuales
-        datosFinales = {};
+        // Post-limpieza: Si el valor es "N/A" o solo basura del PDF, dejar vacío
+        datosExtraidos = {};
         for (let k in raw) {
             let v = raw[k] ? raw[k].toString().trim() : "";
-            if (v.toUpperCase() === "N/A" || v.length <= 1) v = "";
-            datosFinales[k] = v;
+            if (v.toUpperCase() === "N/A" || v.length <= 1 && k !== "Actividad económica") v = "";
+            datosExtraidos[k] = v;
         }
 
-        document.getElementById('status').innerText = "✓ Datos de TICLAM / RUT extraídos correctamente";
+        mostrarVistaPrevia();
+    }
+
+    function mostrarVistaPrevia() {
+        const body = document.getElementById('tableBody');
+        body.innerHTML = "";
+        for (const [key, value] of Object.entries(datosExtraidos)) {
+            body.innerHTML += `<tr><th>${key}</th><td>${value}</td></tr>`;
+        }
+        document.getElementById('dataTable').style.display = "table";
         document.getElementById('dlBtn').style.display = "block";
+        document.getElementById('status').innerText = "✓ Extracción exitosa";
     }
 
     function exportarExcel() {
-        const ws = XLSX.utils.json_to_sheet([datosFinales]);
+        const ws = XLSX.utils.json_to_sheet([datosExtraidos]);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Hoja1");
-        XLSX.writeFile(wb, `RUT_Procesado_${datosFinales["Número de Identificación Tributaria (NIT)"]}.xlsx`);
+        XLSX.utils.book_append_sheet(wb, ws, "Datos RUT");
+        
+        const nombreArchivo = `RUT_${datosExtraidos["Número de Identificación Tributaria (NIT)"] || 'Extraido'}.xlsx`;
+        XLSX.writeFile(wb, nombreArchivo);
     }
 </script>
 

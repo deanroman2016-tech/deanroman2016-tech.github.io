@@ -3,39 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extractor RUT Colombia - Página 1 Especializado</title>
+    <title>Extractor RUT a Excel - Página 1</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        :root { --dian-blue: #003366; --dian-gold: #c5a059; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f9; margin: 0; padding: 20px; color: #333; }
+        :root { --dian-blue: #003366; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f4f7f9; padding: 20px; color: #333; }
         .container { max-width: 850px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
         header { text-align: center; border-bottom: 4px solid var(--dian-blue); margin-bottom: 25px; padding-bottom: 10px; }
         h1 { color: var(--dian-blue); margin: 0; font-size: 22px; text-transform: uppercase; }
-        .upload-section { border: 2px dashed var(--dian-blue); padding: 40px; text-align: center; background: #fafafa; border-radius: 8px; cursor: pointer; transition: 0.3s; }
-        .upload-section:hover { background: #f0f7ff; }
-        #status { margin: 20px 0; font-weight: bold; text-align: center; color: #d9534f; }
-        .status-ok { color: #28a745 !important; }
-        
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; display: none; background: white; }
+        .upload-section { border: 2px dashed var(--dian-blue); padding: 40px; text-align: center; background: #fafafa; border-radius: 8px; cursor: pointer; }
+        #status { margin: 20px 0; font-weight: bold; text-align: center; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; display: none; }
         th, td { padding: 12px; border: 1px solid #dee2e6; text-align: left; font-size: 13px; }
-        th { background-color: var(--dian-blue); color: white; width: 45%; font-weight: 600; }
-        tr:nth-child(even) { background-color: #f8f9fa; }
-
-        .btn-download { display: none; background: #28a745; color: white; border: none; padding: 15px 30px; font-size: 16px; border-radius: 6px; cursor: pointer; margin: 25px auto; font-weight: bold; transition: 0.2s; }
-        .btn-download:hover { background: #218838; transform: scale(1.02); }
-        .warning { font-size: 12px; color: #666; text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; }
+        th { background-color: var(--dian-blue); color: white; width: 45%; }
+        .btn-excel { display: none; background: #1D6F42; color: white; border: none; padding: 15px 30px; font-size: 16px; border-radius: 6px; cursor: pointer; margin: 25px auto; font-weight: bold; width: 100%; }
+        .btn-excel:hover { background: #155231; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <header>
-        <h1>Extractor de Datos RUT - Unificado (Página 1)</h1>
-    </header>
+    <header><h1>Extractor RUT a Excel (Página 1)</h1></header>
 
     <div class="upload-section" onclick="document.getElementById('pdfUpload').click()">
-        <p><strong>Arrastre o seleccione el PDF del RUT</strong></p>
-        <p style="font-size: 13px; color: #666;">(Solo se analizará la información de la primera página)</p>
+        <p><strong>Seleccione el PDF del RUT</strong></p>
+        <p style="font-size: 12px; color: #666;">Se extraerán los datos de la primera página hacia un archivo Excel</p>
         <input type="file" id="pdfUpload" accept=".pdf" style="display:none">
     </div>
 
@@ -45,12 +38,7 @@
         <tbody id="tableBody"></tbody>
     </table>
 
-    <button id="downloadBtn" class="btn-download" onclick="downloadCSV()">DESCARGAR DATOS (CSV)</button>
-
-    <div class="warning">
-        <strong>Nota de Seguridad:</strong> El procesamiento es 100% local. Sus datos no viajan a ningún servidor.<br>
-        Optimizado para capturar NIT, Datos Personales, Ubicación y Actividad Económica principal.
-    </div>
+    <button id="downloadBtn" class="btn-excel" onclick="downloadExcel()">DESCARGAR EXCEL (.xlsx)</button>
 </div>
 
 <script>
@@ -63,94 +51,80 @@
         const file = event.target.files[0];
         if (!file) return;
 
-        const statusDiv = document.getElementById('status');
-        statusDiv.innerText = "Leyendo Página 1...";
-        statusDiv.classList.remove('status-ok');
-
+        document.getElementById('status').innerText = "Procesando página 1...";
         const reader = new FileReader();
+
         reader.onload = async function() {
             try {
                 const typedarray = new Uint8Array(this.result);
                 const pdf = await pdfjsLib.getDocument(typedarray).promise;
                 
-                // RESTRICCIÓN MECÁNICA: Solo procesamos la página 1
+                // Solo página 1
                 const page = await pdf.getPage(1);
                 const textContent = await page.getTextContent();
                 const fullText = textContent.items.map(item => item.str).join(" ");
 
-                processRUTData(fullText);
+                processRUT(fullText);
             } catch (error) {
-                statusDiv.innerText = "Error: El archivo no es un PDF válido o está protegido.";
-                console.error(error);
+                document.getElementById('status').innerText = "Error al procesar el PDF.";
             }
         };
         reader.readAsArrayBuffer(file);
     });
 
-    function processRUTData(text) {
-        // Normalización para facilitar la búsqueda con expresiones regulares
+    function processRUT(text) {
         const cleanText = text.replace(/\n/g, " ").replace(/\s+/g, " ");
 
         extractedData = {
             "Número de Identificación Tributaria (NIT)": cleanText.match(/5\.\s*Número\s*de\s*Identificación\s*Tributaria\s*\(NIT\)\s*([\d.]+)/i)?.[1] || 
-                                                         cleanText.match(/26\.\s*Número\s*de\s*Identificación\s*([\d.]+)/i)?.[1] || "No encontrado",
-            
+                                                         cleanText.match(/26\.\s*Número\s*de\s*Identificación\s*([\d.]+)/i)?.[1] || "No detectado",
             "Tipo de contribuyente": cleanText.match(/24\.\s*Tipo\s*de\s*contribuyente\s*([A-Z\s]+?)(?=25|$)/i)?.[1]?.trim() || "Persona Natural/Jurídica",
-            
             "Primer apellido": cleanText.match(/31\.\s*Primer\s*apellido\s*([A-Z]+)/i)?.[1] || "",
             "Segundo apellido": cleanText.match(/32\.\s*Segundo\s*apellido\s*([A-Z]+)/i)?.[1] || "",
             "Primer nombre": cleanText.match(/33\.\s*Primer\s*nombre\s*([A-Z]+)/i)?.[1] || "",
             "Otros nombres": cleanText.match(/34\.\s*(?:Otros|Ovos)\s*nombres\s*([A-Z\s]+?)(?=35|$)/i)?.[1]?.trim() || "",
-            
             "Razón social": cleanText.match(/35\.\s*Razón\s*social\s*([A-Z\s]+?)(?=36|$)/i)?.[1]?.trim() || 
                             cleanText.match(/36\.\s*Nombre\s*comercial\s*([A-Z\s]+?)(?=37|$)/i)?.[1]?.trim() || "N/A",
-            
             "País": cleanText.match(/38\.\s*Pa[íi]s\s*([A-Z]+)/i)?.[1] || "COLOMBIA",
             "Departamento": (cleanText.match(/39\.\s*Departamento\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
             "Ciudad/Municipio": (cleanText.match(/40\.\s*Ciudad\/Municipio\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
-            
             "Dirección principal": cleanText.match(/41\.\s*Dirección\s*principal\s*([^42]+)/i)?.[1]?.trim() || "",
             "Correo electrónico": cleanText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || "",
-            "Actividad económica (número)": cleanText.match(/46\.\s*Código\s*(\d{4})/i)?.[1] || "No encontrada"
+            "Actividad económica": cleanText.match(/46\.\s*Código\s*(\d{4})/i)?.[1] || ""
         };
 
-        showResults();
+        renderTable();
     }
 
-    function showResults() {
+    function renderTable() {
         const tableBody = document.getElementById('tableBody');
         tableBody.innerHTML = "";
-        
         for (const [key, value] of Object.entries(extractedData)) {
             tableBody.innerHTML += `<tr><th>${key}</th><td>${value}</td></tr>`;
         }
-
         document.getElementById('dataTable').style.display = "table";
         document.getElementById('downloadBtn').style.display = "block";
-        const statusDiv = document.getElementById('status');
-        statusDiv.innerText = "✓ Extracción de Página 1 Completada";
-        statusDiv.classList.add('status-ok');
+        document.getElementById('status').innerText = "✓ Datos extraídos con éxito";
     }
 
-    function downloadCSV() {
-        // Preparamos el contenido CSV con BOM para compatibilidad con Excel (acentos)
-        const headers = Object.keys(extractedData).join(",");
-        const values = Object.values(extractedData).map(v => `"${v}"`).join(",");
-        const csvContent = "\uFEFF" + headers + "\n" + values;
+    function downloadExcel() {
+        // Convertir el objeto extraído a un formato que SheetJS entienda (Array de Arrays)
+        const dataArray = [
+            Object.keys(extractedData),
+            Object.values(extractedData)
+        ];
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        
-        const fileName = `RUT_P1_${extractedData["Número de Identificación Tributaria (NIT)"].replace(/\./g, '')}.csv`;
-        
-        link.setAttribute("href", url);
-        link.setAttribute("download", fileName);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        // Crear libro y hoja de trabajo
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.aoa_to_sheet(dataArray);
+
+        // Añadir hoja al libro
+        XLSX.utils.book_append_sheet(wb, ws, "Datos RUT");
+
+        // Generar archivo y descargar
+        const nitDesc = extractedData["Número de Identificación Tributaria (NIT)"].replace(/\./g, '');
+        XLSX.writeFile(wb, `RUT_P1_${nitDesc}.xlsx`);
     }
 </script>
-
 </body>
 </html>

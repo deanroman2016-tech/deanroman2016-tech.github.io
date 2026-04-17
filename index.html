@@ -3,61 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extractor RUT Colombia - DIAN</title>
+    <title>Extractor RUT Colombia - Página 1 Especializado</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <style>
         :root { --dian-blue: #003366; --dian-gold: #c5a059; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-        header { text-align: center; border-bottom: 3px solid var(--dian-blue); margin-bottom: 25px; padding-bottom: 10px; }
-        h1 { color: var(--dian-blue); margin: 0; font-size: 24px; }
-        .upload-box { border: 2px dashed var(--dian-blue); padding: 40px; text-align: center; background: #f8fbff; border-radius: 8px; transition: 0.3s; cursor: pointer; }
-        .upload-box:hover { background: #eef5ff; }
-        #status { margin: 15px 0; font-weight: bold; text-align: center; color: #555; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f9; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 850px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+        header { text-align: center; border-bottom: 4px solid var(--dian-blue); margin-bottom: 25px; padding-bottom: 10px; }
+        h1 { color: var(--dian-blue); margin: 0; font-size: 22px; text-transform: uppercase; }
+        .upload-section { border: 2px dashed var(--dian-blue); padding: 40px; text-align: center; background: #fafafa; border-radius: 8px; cursor: pointer; transition: 0.3s; }
+        .upload-section:hover { background: #f0f7ff; }
+        #status { margin: 20px 0; font-weight: bold; text-align: center; color: #d9534f; }
+        .status-ok { color: #28a745 !important; }
         
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; display: none; }
-        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; font-size: 14px; }
-        th { background-color: var(--dian-blue); color: white; width: 35%; }
-        tr:nth-child(even) { background-color: #f9f9f9; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; display: none; background: white; }
+        th, td { padding: 12px; border: 1px solid #dee2e6; text-align: left; font-size: 13px; }
+        th { background-color: var(--dian-blue); color: white; width: 45%; font-weight: 600; }
+        tr:nth-child(even) { background-color: #f8f9fa; }
 
-        .actions { margin-top: 20px; text-align: center; display: none; }
-        .btn { background: var(--dian-blue); color: white; border: none; padding: 12px 25px; font-size: 16px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        .btn:hover { background: #004a94; transform: translateY(-2px); }
-        .footer-note { font-size: 11px; color: #888; margin-top: 30px; text-align: center; line-height: 1.4; }
+        .btn-download { display: none; background: #28a745; color: white; border: none; padding: 15px 30px; font-size: 16px; border-radius: 6px; cursor: pointer; margin: 25px auto; font-weight: bold; transition: 0.2s; }
+        .btn-download:hover { background: #218838; transform: scale(1.02); }
+        .warning { font-size: 12px; color: #666; text-align: center; margin-top: 20px; border-top: 1px solid #eee; padding-top: 10px; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <header>
-        <h1>Extractor de Datos RUT (Normativa Colombiana)</h1>
+        <h1>Extractor de Datos RUT - Unificado (Página 1)</h1>
     </header>
 
-    <div class="upload-box" onclick="document.getElementById('pdfUpload').click()">
-        <p>Haga clic o arrastre aquí el PDF del RUT</p>
+    <div class="upload-section" onclick="document.getElementById('pdfUpload').click()">
+        <p><strong>Arrastre o seleccione el PDF del RUT</strong></p>
+        <p style="font-size: 13px; color: #666;">(Solo se analizará la información de la primera página)</p>
         <input type="file" id="pdfUpload" accept=".pdf" style="display:none">
-        <button class="btn">Seleccionar Archivo</button>
     </div>
 
-    <div id="status">Esperando archivo...</div>
+    <div id="status">Esperando documento...</div>
     
     <table id="dataTable">
-        <thead>
-            <tr>
-                <th>Campo DIAN</th>
-                <th>Valor Extraído</th>
-            </tr>
-        </thead>
         <tbody id="tableBody"></tbody>
     </table>
 
-    <div class="actions" id="actionArea">
-        <button class="btn" onclick="downloadCSV()">Descargar Datos en CSV</button>
-    </div>
+    <button id="downloadBtn" class="btn-download" onclick="downloadCSV()">DESCARGAR DATOS (CSV)</button>
 
-    <div class="footer-note">
-        * Esta herramienta procesa el código localmente en su navegador. Ningún dato es enviado a servidores externos.<br>
-        Optimizado para formatos de Registro Único Tributario (DIAN) 2024-2026.
+    <div class="warning">
+        <strong>Nota de Seguridad:</strong> El procesamiento es 100% local. Sus datos no viajan a ningún servidor.<br>
+        Optimizado para capturar NIT, Datos Personales, Ubicación y Actividad Económica principal.
     </div>
 </div>
 
@@ -71,67 +63,61 @@
         const file = event.target.files[0];
         if (!file) return;
 
-        document.getElementById('status').innerText = "Leyendo documento...";
-        const reader = new FileReader();
+        const statusDiv = document.getElementById('status');
+        statusDiv.innerText = "Leyendo Página 1...";
+        statusDiv.classList.remove('status-ok');
 
+        const reader = new FileReader();
         reader.onload = async function() {
             try {
                 const typedarray = new Uint8Array(this.result);
                 const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                let fullText = "";
+                
+                // RESTRICCIÓN MECÁNICA: Solo procesamos la página 1
+                const page = await pdf.getPage(1);
+                const textContent = await page.getTextContent();
+                const fullText = textContent.items.map(item => item.str).join(" ");
 
-                for (let i = 1; i <= pdf.numPages; i++) {
-                    const page = await pdf.getPage(i);
-                    const textContent = await page.getTextContent();
-                    fullText += textContent.items.map(item => item.str).join(" ");
-                }
-
-                processRUT(fullText);
+                processRUTData(fullText);
             } catch (error) {
-                document.getElementById('status').innerText = "Error al procesar el PDF. Asegúrese de que no esté protegido.";
+                statusDiv.innerText = "Error: El archivo no es un PDF válido o está protegido.";
                 console.error(error);
             }
         };
         reader.readAsArrayBuffer(file);
     });
 
-    function processRUT(text) {
-        // Normalización de texto para búsqueda limpia
+    function processRUTData(text) {
+        // Normalización para facilitar la búsqueda con expresiones regulares
         const cleanText = text.replace(/\n/g, " ").replace(/\s+/g, " ");
 
         extractedData = {
-            "NIT": cleanText.match(/5\. Número de Identificación Tributaria \(NIT\)\s*([\d.]+)/i)?.[1] || 
-                   cleanText.match(/26\. Número de Identificación\s*([\d.]+)/i)?.[1] || "No detectado",
+            "Número de Identificación Tributaria (NIT)": cleanText.match(/5\.\s*Número\s*de\s*Identificación\s*Tributaria\s*\(NIT\)\s*([\d.]+)/i)?.[1] || 
+                                                         cleanText.match(/26\.\s*Número\s*de\s*Identificación\s*([\d.]+)/i)?.[1] || "No encontrado",
             
-            "Tipo de contribuyente": cleanText.match(/24\. Tipo de contribuyente\s*([A-Z\s]+?)(?=25|$)/i)?.[1]?.trim() || "Persona Natural",
+            "Tipo de contribuyente": cleanText.match(/24\.\s*Tipo\s*de\s*contribuyente\s*([A-Z\s]+?)(?=25|$)/i)?.[1]?.trim() || "Persona Natural/Jurídica",
             
-            "Primer apellido": cleanText.match(/31\. Primer apellido\s*([A-Z]+)/i)?.[1] || "",
-            "Segundo apellido": cleanText.match(/32\. Segundo apellido\s*([A-Z]+)/i)?.[1] || "",
-            "Primer nombre": cleanText.match(/33\. Primer nombre\s*([A-Z]+)/i)?.[1] || "",
+            "Primer apellido": cleanText.match(/31\.\s*Primer\s*apellido\s*([A-Z]+)/i)?.[1] || "",
+            "Segundo apellido": cleanText.match(/32\.\s*Segundo\s*apellido\s*([A-Z]+)/i)?.[1] || "",
+            "Primer nombre": cleanText.match(/33\.\s*Primer\s*nombre\s*([A-Z]+)/i)?.[1] || "",
+            "Otros nombres": cleanText.match(/34\.\s*(?:Otros|Ovos)\s*nombres\s*([A-Z\s]+?)(?=35|$)/i)?.[1]?.trim() || "",
             
-            "Otros nombres": cleanText.match(/34\. Ovos nombres\s*([A-Z\s]+?)(?=35|$)/i)?.[1]?.trim() || 
-                             cleanText.match(/34\. Otros nombres\s*([A-Z\s]+?)(?=35|$)/i)?.[1]?.trim() || "",
+            "Razón social": cleanText.match(/35\.\s*Razón\s*social\s*([A-Z\s]+?)(?=36|$)/i)?.[1]?.trim() || 
+                            cleanText.match(/36\.\s*Nombre\s*comercial\s*([A-Z\s]+?)(?=37|$)/i)?.[1]?.trim() || "N/A",
             
-            "Razón social": cleanText.match(/35\. Razón social\s*([A-Z\s]+?)(?=36|$)/i)?.[1]?.trim() || 
-                            cleanText.match(/36\. Nombre comercial\s*([A-Z\s]+?)(?=37|$)/i)?.[1]?.trim() || "N/A",
+            "País": cleanText.match(/38\.\s*Pa[íi]s\s*([A-Z]+)/i)?.[1] || "COLOMBIA",
+            "Departamento": (cleanText.match(/39\.\s*Departamento\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
+            "Ciudad/Municipio": (cleanText.match(/40\.\s*Ciudad\/Municipio\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
             
-            "País": cleanText.match(/38\. Pa[íi]s\s*([A-Z]+)/i)?.[1] || "COLOMBIA",
-            
-            "Departamento": (cleanText.match(/39\. Departamento\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
-            
-            "Ciudad/Municipio": (cleanText.match(/40\. Ciudad\/Municipio\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
-            
-            "Dirección principal": cleanText.match(/41\. Dirección principal\s*([^42]+)/i)?.[1]?.trim() || "",
-            
+            "Dirección principal": cleanText.match(/41\.\s*Dirección\s*principal\s*([^42]+)/i)?.[1]?.trim() || "",
             "Correo electrónico": cleanText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || "",
-            
-            "Actividad económica": cleanText.match(/46\. Código\s*(\d{4})/i)?.[1] || "No encontrada"
+            "Actividad económica (número)": cleanText.match(/46\.\s*Código\s*(\d{4})/i)?.[1] || "No encontrada"
         };
 
-        renderTable();
+        showResults();
     }
 
-    function renderTable() {
+    function showResults() {
         const tableBody = document.getElementById('tableBody');
         tableBody.innerHTML = "";
         
@@ -140,19 +126,26 @@
         }
 
         document.getElementById('dataTable').style.display = "table";
-        document.getElementById('actionArea').style.display = "block";
-        document.getElementById('status').innerText = "✓ Información extraída con éxito";
+        document.getElementById('downloadBtn').style.display = "block";
+        const statusDiv = document.getElementById('status');
+        statusDiv.innerText = "✓ Extracción de Página 1 Completada";
+        statusDiv.classList.add('status-ok');
     }
 
     function downloadCSV() {
+        // Preparamos el contenido CSV con BOM para compatibilidad con Excel (acentos)
         const headers = Object.keys(extractedData).join(",");
         const values = Object.values(extractedData).map(v => `"${v}"`).join(",");
-        const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + headers + "\n" + values;
+        const csvContent = "\uFEFF" + headers + "\n" + values;
 
-        const encodedUri = encodeURI(csvContent);
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `RUT_Extraido_${extractedData.NIT}.csv`);
+        
+        const fileName = `RUT_P1_${extractedData["Número de Identificación Tributaria (NIT)"].replace(/\./g, '')}.csv`;
+        
+        link.setAttribute("href", url);
+        link.setAttribute("download", fileName);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);

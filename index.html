@@ -2,34 +2,38 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Extractor RUT - Excel</title>
+    <title>Extractor RUT Profesional</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
-        .container { max-width: 800px; margin: auto; border: 1px solid #ccc; padding: 20px; border-radius: 8px; }
-        #drop-area { border: 2px dashed #007bff; padding: 40px; text-align: center; cursor: pointer; }
-        button { background: #28a745; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; margin-top: 10px; }
-        table { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 12px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 30px; background-color: #f4f7f6; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        #drop-area { border: 2px dashed #0056b3; padding: 50px; text-align: center; cursor: pointer; background: #e9f2ff; transition: 0.3s; }
+        #drop-area:hover { background: #d0e4ff; }
+        button { background: #007bff; color: white; border: none; padding: 12px 25px; cursor: pointer; border-radius: 6px; font-weight: bold; }
+        .table-wrapper { overflow-x: auto; margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        th, td { border: 1px solid #dee2e6; padding: 10px; text-align: left; min-width: 80px; }
+        th { background: #f8f9fa; color: #333; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Extractor de RUT a Excel</h2>
-    <p>Sube un archivo RUT (PDF) para generar la fila de exportación automática.</p>
+    <h2>Extractor de RUT con Anclaje Numérico</h2>
+    <p>Este extractor utiliza los códigos de campo oficiales (5, 6, 35, 46, etc.) para mayor precisión.</p>
     
     <div id="drop-area">
         <input type="file" id="file-input" accept="application/pdf" style="display:none">
-        <p>Haz clic aquí o arrastra el PDF del RUT</p>
+        <strong>Arrastra aquí el RUT o haz clic para buscar</strong>
     </div>
 
     <div id="result-area" style="display:none">
-        <h3>Vista Previa:</h3>
-        <div style="overflow-x: auto;">
+        <h3>Vista Previa de Exportación:</h3>
+        <div class="table-wrapper">
             <table id="preview-table"></table>
         </div>
+        <br>
         <button id="download-btn">Descargar Excel (.xlsx)</button>
     </div>
 </div>
@@ -40,77 +44,91 @@
 
     const fileInput = document.getElementById('file-input');
     const dropArea = document.getElementById('drop-area');
-    let extractedData = [];
+    let finalRow = [];
 
     dropArea.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
-        if (file) await processPDF(file);
+        if (file) await processRUT(file);
     });
 
-    async function processPDF(file) {
+    async function processRUT(file) {
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
-        const page = await pdf.getPage(1); // REGLA: Solo página 1
+        const page = await pdf.getPage(1); // Solo Página 1
         const textContent = await page.getTextContent();
         
-        // Unimos el texto y aplicamos el corte en "Firma del solicitante"
-        let fullText = textContent.items.map(item => item.str).join(" ");
-        if (fullText.includes("Firma del solicitante")) {
-            fullText = fullText.split("Firma del solicitante")[0];
+        // Extraemos texto con limpieza de espacios múltiples
+        let rawLines = textContent.items.map(item => item.str);
+        let text = rawLines.join(" ").replace(/\s+/g, ' ');
+
+        // Punto de corte: Firma del solicitante
+        if (text.includes("Firma del solicitante")) {
+            text = text.split("Firma del solicitante")[0];
         }
 
-        const dataRow = Array(22).fill("");
+        const row = Array(22).fill("");
 
-        // 1. Tipo de Contribuyente (Col 11)
-        const isJuridica = fullText.includes("Persona jurídica");
-        dataRow[10] = isJuridica ? "Persona jurídica" : "Persona natural o sucesión ilíquida";
+        // LOGICA DE EXTRACCIÓN POR ANCLAS NUMÉRICAS
+        
+        // 11. Tipo de Contribuyente
+        row[10] = text.includes("Persona jurídica") ? "Persona jurídica" : "Persona natural o sucesión ilíquida";
 
-        // 2. NIT y DV (Col 10 y 22)
-        const nitMatch = fullText.match(/5\.\s*Número de Identificación Tributaria\s*\(NIT\)\s*(\d+)/);
-        const dvMatch = fullText.match(/6\.\s*DV\s*(\d)/);
-        if (nitMatch) dataRow[9] = nitMatch[1];
-        if (dvMatch) dataRow[21] = dvMatch[1];
+        // 10. NIT (Campo 5) y 22. DV (Campo 6)
+        const nitMatch = text.match(/5\.\s*Número de Identificación Tributaria\s*\(NIT\)\s*([\d\s]+)/);
+        const dvMatch = text.match(/6\.\s*DV\s*(\d)/);
+        if (nitMatch) row[9] = nitMatch[1].replace(/\s/g, '');
+        if (dvMatch) row[21] = dvMatch[1];
 
-        // 3. Nombre / Razón Social (Col 1)
-        if (isJuridica) {
-            const rsMatch = fullText.match(/35\.\s*Razón\s*social\s*(.*?)(?=36\.)/);
-            dataRow[0] = rsMatch ? rsMatch[1].trim() : "";
+        // 1. Nombre o Razón Social
+        if (row[10] === "Persona jurídica") {
+            const rsMatch = text.match(/35\.\s*Razón\s*social\s*(.*?)(?=36\.)/);
+            row[0] = rsMatch ? rsMatch[1].trim() : "";
         } else {
-            // REGLA: Otros nombres + Primer nombre + Primer apellido + Segundo apellido
-            const pApe = (fullText.match(/31\.\s*Primer\s*apellido\s*(.*?)(?=32\.)/) || ["",""])[1].trim();
-            const sApe = (fullText.match(/32\.\s*Segundo\s*apellido\s*(.*?)(?=33\.)/) || ["",""])[1].trim();
-            const pNom = (fullText.match(/33\.\s*Primer\s*nombre\s*(.*?)(?=34\.)/) || ["",""])[1].trim();
-            const oNom = (fullText.match(/34\.\s*Otros\s*nombres\s*(.*?)(?=35\.)/) || ["",""])[1].trim();
-            dataRow[0] = `${oNom} ${pNom} ${pApe} ${sApe}`.replace(/\s+/g, ' ').trim();
+            // Lógica: Otros (34) + Primero (33) + Apellido1 (31) + Apellido2 (32)
+            const pApe = extractField(text, "31");
+            const sApe = extractField(text, "32");
+            const pNom = extractField(text, "33");
+            const oNom = extractField(text, "34");
+            row[0] = `${oNom} ${pNom} ${pApe} ${sApe}`.trim();
         }
 
-        // 4. Ubicación
-        dataRow[4] = (fullText.match(/41\.\s*Dirección\s*principal\s*(.*?)(?=42\.)/) || ["",""])[1].trim();
-        dataRow[6] = (fullText.match(/40\.\s*Ciudad\/Municipio\s*\d*\s*(.*?)(?=41\.)/) || ["",""])[1].trim();
-        dataRow[8] = (fullText.match(/42\.\s*Correo\s*electrónico\s*(.*?)(?=43\.)/) || ["",""])[1].trim();
+        // 5. Dirección (41), 7. Ciudad (40), 9. Correo (42)
+        row[4] = extractField(text, "41");
+        // Limpiar ciudad (eliminar el código numérico inicial)
+        let ciudadRaw = extractField(text, "40");
+        row[6] = ciudadRaw.replace(/^\d+\s*/, '').trim(); 
+        row[8] = extractField(text, "42");
 
-        // 5. Actividad (Col 21) - Solo número
-        const actMatch = fullText.match(/46\.\s*Código\s*(\d{4})/);
-        if (actMatch) dataRow[20] = actMatch[1];
+        // 21. Actividad Económica (Campo 46) - Solo 4 números
+        const actMatch = text.match(/46\.\s*Código\s*(\d{4})/);
+        if (actMatch) row[20] = actMatch[1];
 
-        extractedData = [dataRow];
-        showPreview(dataRow);
+        finalRow = row;
+        renderTable(row);
     }
 
-    function showPreview(row) {
+    function extractField(text, num) {
+        const regex = new RegExp(`${num}\\.\\s*[^\\n]*?\\s([^0-9][^\\n]*?)(?=\\s\\d{2,3}\\.|$)`, 'i');
+        // Intento 2: Buscar entre el número de campo y el siguiente número de campo
+        const match = text.match(new RegExp(`${num}\\.\\s*.*?\\s(.*?)(?=\\s\\d+\\.|$)`));
+        return match ? match[1].trim() : "";
+    }
+
+    function renderTable(row) {
         const table = document.getElementById('preview-table');
-        table.innerHTML = `<tr>${row.map((d, i) => `<th>${i+1}</th>`).join('')}</tr>
-                           <tr>${row.map(d => `<td>${d}</td>`).join('')}</tr>`;
+        let header = "<tr>" + row.map((_, i) => `<th>Col ${i+1}</th>`).join('') + "</tr>";
+        let body = "<tr>" + row.map(d => `<td>${d || ''}</td>`).join('') + "</tr>";
+        table.innerHTML = header + body;
         document.getElementById('result-area').style.display = 'block';
     }
 
     document.getElementById('download-btn').addEventListener('click', () => {
-        const ws = XLSX.utils.aoa_to_sheet([Array.from({length: 22}, (_, i) => i + 1), extractedData[0]]);
+        const ws = XLSX.utils.aoa_to_sheet([Array.from({length: 22}, (_, i) => `Columna ${i+1}`), finalRow]);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "RUT");
-        XLSX.writeFile(wb, "RUT_Extraido.xlsx");
+        XLSX.utils.book_append_sheet(wb, ws, "RUT_DATA");
+        XLSX.writeFile(wb, "Extraccion_RUT.xlsx");
     });
 </script>
 </body>

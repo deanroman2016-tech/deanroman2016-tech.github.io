@@ -2,144 +2,116 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extractor RUT Pro - TICLAM & Naturales</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <title>Extractor RUT - Excel</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        :root { --primary: #003366; --accent: #1D6F42; --bg: #f8f9fa; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); margin: 0; padding: 20px; display: flex; justify-content: center; }
-        .app-container { width: 100%; max-width: 900px; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
-        header { text-align: center; margin-bottom: 30px; border-bottom: 3px solid var(--primary); padding-bottom: 15px; }
-        h1 { color: var(--primary); margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }
-        .drop-zone { border: 2px dashed #ccc; padding: 40px; text-align: center; border-radius: 12px; cursor: pointer; transition: all 0.3s; background: #fafafa; }
-        .drop-zone:hover { border-color: var(--primary); background: #f0f4f8; }
-        #status { text-align: center; margin: 20px 0; font-weight: 600; color: #555; height: 24px; }
-        .result-table { width: 100%; border-collapse: collapse; margin-top: 20px; display: none; font-size: 13px; }
-        .result-table th, .result-table td { border: 1px solid #eee; padding: 12px; text-align: left; }
-        .result-table th { background: var(--primary); color: white; width: 40%; }
-        .btn-excel { display: none; width: 100%; background: var(--accent); color: white; border: none; padding: 16px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; margin-top: 25px; transition: transform 0.2s; }
-        .btn-excel:hover { transform: translateY(-2px); filter: brightness(1.1); }
-        .footer-note { font-size: 11px; color: #888; text-align: center; margin-top: 20px; }
+        body { font-family: sans-serif; padding: 20px; line-height: 1.6; }
+        .container { max-width: 800px; margin: auto; border: 1px solid #ccc; padding: 20px; border-radius: 8px; }
+        #drop-area { border: 2px dashed #007bff; padding: 40px; text-align: center; cursor: pointer; }
+        button { background: #28a745; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; margin-top: 10px; }
+        table { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 12px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
     </style>
 </head>
 <body>
 
-<div class="app-container">
-    <header>
-        <h1>Extracción Inteligente RUT (Página 1)</h1>
-    </header>
-
-    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileIn').click()">
-        <p style="margin:0; font-size: 16px;"><strong>Click o arrastre el archivo PDF aquí</strong></p>
-        <p style="color: #888; font-size: 13px;">Compatible con RUT de Empresas (S.A.S) y Personas Naturales</p>
-        <input type="file" id="fileIn" accept=".pdf" style="display:none">
+<div class="container">
+    <h2>Extractor de RUT a Excel</h2>
+    <p>Sube un archivo RUT (PDF) para generar la fila de exportación automática.</p>
+    
+    <div id="drop-area">
+        <input type="file" id="file-input" accept="application/pdf" style="display:none">
+        <p>Haz clic aquí o arrastra el PDF del RUT</p>
     </div>
 
-    <div id="status">Esperando archivo...</div>
-    
-    <table id="dataTable" class="result-table">
-        <tbody id="tableBody"></tbody>
-    </table>
-
-    <button id="dlBtn" class="btn-excel" onclick="exportarExcel()">DESCARGAR RESULTADO EN EXCEL (.xlsx)</button>
-
-    <div class="footer-note">
-        El sistema procesa la información localmente. Ningún dato es enviado a servidores externos.
+    <div id="result-area" style="display:none">
+        <h3>Vista Previa:</h3>
+        <div style="overflow-x: auto;">
+            <table id="preview-table"></table>
+        </div>
+        <button id="download-btn">Descargar Excel (.xlsx)</button>
     </div>
 </div>
 
 <script>
     const pdfjsLib = window['pdfjs-dist/build/pdf'];
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-    
-    let datosExtraidos = {};
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
 
-    document.getElementById('fileIn').addEventListener('change', async (e) => {
+    const fileInput = document.getElementById('file-input');
+    const dropArea = document.getElementById('drop-area');
+    let extractedData = [];
+
+    dropArea.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
-        if (!file) return;
-
-        document.getElementById('status').innerText = "Procesando documento...";
-        const reader = new FileReader();
-        reader.onload = async function() {
-            try {
-                const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
-                const page = await pdf.getPage(1);
-                const textContent = await page.getTextContent();
-                const rawText = textContent.items.map(s => s.str).join(" ");
-                
-                analizarRUT(rawText);
-            } catch (err) {
-                document.getElementById('status').innerText = "Error: El archivo no se pudo leer.";
-            }
-        };
-        reader.readAsArrayBuffer(file);
+        if (file) await processPDF(file);
     });
 
-    function limpiarUbicacion(val) {
-        if (!val) return "";
-        // Elimina códigos numéricos al inicio (ej: "169 Antioquia" -> "Antioquia")
-        return val.replace(/^\d+\s*/, '').trim().toUpperCase();
-    }
-
-    function analizarRUT(text) {
-        const t = text.replace(/\s+/g, " ");
-
-        // Lógica de NIT (Especial para espacios en TICLAM)
-        let nitMatch = t.match(/NIT\s*\)?\s*([\d\s.]+)/i);
-        let nitFull = nitMatch ? nitMatch[1].replace(/[\s.]/g, '') : "";
-        // Siguiendo tu ejemplo manual: si tiene DV al final, lo quitamos
-        let nitLimpio = (nitFull.length >= 10) ? nitFull.substring(0, nitFull.length - 1) : nitFull;
-
-        const juridica = t.toUpperCase().includes("JURÍDICA") || t.toUpperCase().includes("JURIDICA");
-
-        const raw = {
-            "Número de Identificación Tributaria (NIT)": nitLimpio,
-            "Tipo de contribuyente": juridica ? "PERSONA JURÍDICA" : "PERSONA NATURAL",
-            "Primer apellido": juridica ? "" : (t.match(/31\.\s*Primer\s*apellido\s*([A-ZÑÁÉÍÓÚ]+)/i)?.[1] || ""),
-            "Segundo apellido": juridica ? "" : (t.match(/32\.\s*Segundo\s*apellido\s*([A-ZÑÁÉÍÓÚ]+)/i)?.[1] || ""),
-            "Primer nombre": juridica ? "" : (t.match(/33\.\s*Primer\s*nombre\s*([A-ZÑÁÉÍÓÚ]+)/i)?.[1] || ""),
-            "Otros nombres": juridica ? "" : (t.match(/34\.\s*(?:Otros|Ovos)\s*nombres\s*([^35]+)/i)?.[1]?.trim() || ""),
-            "Razón social": t.match(/35\.\s*Razón\s*social\s*([^36]+)/i)?.[1]?.trim() || "",
-            "País": "COLOMBIA",
-            "Departamento": limpiarUbicacion(t.match(/39\.\s*Departamento\s*(\d*\s*[A-ZÑÁÉÍÓÚ\s]+?)(?=40|$)/i)?.[1]),
-            "Ciudad/Municipio": limpiarUbicacion(t.match(/40\.\s*Ciudad\/Municipio\s*(\d*\s*[A-ZÑÁÉÍÓÚ\s]+?)(?=41|$)/i)?.[1]),
-            "Dirección principal": t.match(/41\.\s*Dirección\s*principal\s*([^42]+)/i)?.[1]?.trim() || "",
-            "Correo electrónico": t.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || "",
-            "Actividad económica": t.match(/46\.\s*Código\s*(\d{4})/i)?.[1] || ""
-        };
-
-        // Post-limpieza: Si el valor es "N/A" o solo basura del PDF, dejar vacío
-        datosExtraidos = {};
-        for (let k in raw) {
-            let v = raw[k] ? raw[k].toString().trim() : "";
-            if (v.toUpperCase() === "N/A" || v.length <= 1 && k !== "Actividad económica") v = "";
-            datosExtraidos[k] = v;
-        }
-
-        mostrarVistaPrevia();
-    }
-
-    function mostrarVistaPrevia() {
-        const body = document.getElementById('tableBody');
-        body.innerHTML = "";
-        for (const [key, value] of Object.entries(datosExtraidos)) {
-            body.innerHTML += `<tr><th>${key}</th><td>${value}</td></tr>`;
-        }
-        document.getElementById('dataTable').style.display = "table";
-        document.getElementById('dlBtn').style.display = "block";
-        document.getElementById('status').innerText = "✓ Extracción exitosa";
-    }
-
-    function exportarExcel() {
-        const ws = XLSX.utils.json_to_sheet([datosExtraidos]);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Datos RUT");
+    async function processPDF(file) {
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+        const page = await pdf.getPage(1); // REGLA: Solo página 1
+        const textContent = await page.getTextContent();
         
-        const nombreArchivo = `RUT_${datosExtraidos["Número de Identificación Tributaria (NIT)"] || 'Extraido'}.xlsx`;
-        XLSX.writeFile(wb, nombreArchivo);
-    }
-</script>
+        // Unimos el texto y aplicamos el corte en "Firma del solicitante"
+        let fullText = textContent.items.map(item => item.str).join(" ");
+        if (fullText.includes("Firma del solicitante")) {
+            fullText = fullText.split("Firma del solicitante")[0];
+        }
 
+        const dataRow = Array(22).fill("");
+
+        // 1. Tipo de Contribuyente (Col 11)
+        const isJuridica = fullText.includes("Persona jurídica");
+        dataRow[10] = isJuridica ? "Persona jurídica" : "Persona natural o sucesión ilíquida";
+
+        // 2. NIT y DV (Col 10 y 22)
+        const nitMatch = fullText.match(/5\.\s*Número de Identificación Tributaria\s*\(NIT\)\s*(\d+)/);
+        const dvMatch = fullText.match(/6\.\s*DV\s*(\d)/);
+        if (nitMatch) dataRow[9] = nitMatch[1];
+        if (dvMatch) dataRow[21] = dvMatch[1];
+
+        // 3. Nombre / Razón Social (Col 1)
+        if (isJuridica) {
+            const rsMatch = fullText.match(/35\.\s*Razón\s*social\s*(.*?)(?=36\.)/);
+            dataRow[0] = rsMatch ? rsMatch[1].trim() : "";
+        } else {
+            // REGLA: Otros nombres + Primer nombre + Primer apellido + Segundo apellido
+            const pApe = (fullText.match(/31\.\s*Primer\s*apellido\s*(.*?)(?=32\.)/) || ["",""])[1].trim();
+            const sApe = (fullText.match(/32\.\s*Segundo\s*apellido\s*(.*?)(?=33\.)/) || ["",""])[1].trim();
+            const pNom = (fullText.match(/33\.\s*Primer\s*nombre\s*(.*?)(?=34\.)/) || ["",""])[1].trim();
+            const oNom = (fullText.match(/34\.\s*Otros\s*nombres\s*(.*?)(?=35\.)/) || ["",""])[1].trim();
+            dataRow[0] = `${oNom} ${pNom} ${pApe} ${sApe}`.replace(/\s+/g, ' ').trim();
+        }
+
+        // 4. Ubicación
+        dataRow[4] = (fullText.match(/41\.\s*Dirección\s*principal\s*(.*?)(?=42\.)/) || ["",""])[1].trim();
+        dataRow[6] = (fullText.match(/40\.\s*Ciudad\/Municipio\s*\d*\s*(.*?)(?=41\.)/) || ["",""])[1].trim();
+        dataRow[8] = (fullText.match(/42\.\s*Correo\s*electrónico\s*(.*?)(?=43\.)/) || ["",""])[1].trim();
+
+        // 5. Actividad (Col 21) - Solo número
+        const actMatch = fullText.match(/46\.\s*Código\s*(\d{4})/);
+        if (actMatch) dataRow[20] = actMatch[1];
+
+        extractedData = [dataRow];
+        showPreview(dataRow);
+    }
+
+    function showPreview(row) {
+        const table = document.getElementById('preview-table');
+        table.innerHTML = `<tr>${row.map((d, i) => `<th>${i+1}</th>`).join('')}</tr>
+                           <tr>${row.map(d => `<td>${d}</td>`).join('')}</tr>`;
+        document.getElementById('result-area').style.display = 'block';
+    }
+
+    document.getElementById('download-btn').addEventListener('click', () => {
+        const ws = XLSX.utils.aoa_to_sheet([Array.from({length: 22}, (_, i) => i + 1), extractedData[0]]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "RUT");
+        XLSX.writeFile(wb, "RUT_Extraido.xlsx");
+    });
+</script>
 </body>
 </html>

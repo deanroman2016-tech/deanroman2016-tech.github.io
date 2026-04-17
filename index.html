@@ -3,45 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Extractor de Datos PDF - Normativa Colombiana</title>
+    <title>Extractor RUT Colombia - DIAN</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; background-color: #f4f4f9; color: #333; }
-        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1 { color: #003366; text-align: center; }
-        .upload-section { border: 2px dashed #003366; padding: 30px; text-align: center; margin-bottom: 20px; }
-        #output { width: 100%; height: 150px; margin-top: 10px; font-family: monospace; font-size: 12px; }
-        button { background: #003366; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; }
-        button:disabled { background: #ccc; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
-        table, th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
+        :root { --dian-blue: #003366; --dian-gold: #c5a059; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        header { text-align: center; border-bottom: 3px solid var(--dian-blue); margin-bottom: 25px; padding-bottom: 10px; }
+        h1 { color: var(--dian-blue); margin: 0; font-size: 24px; }
+        .upload-box { border: 2px dashed var(--dian-blue); padding: 40px; text-align: center; background: #f8fbff; border-radius: 8px; transition: 0.3s; cursor: pointer; }
+        .upload-box:hover { background: #eef5ff; }
+        #status { margin: 15px 0; font-weight: bold; text-align: center; color: #555; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; display: none; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; font-size: 14px; }
+        th { background-color: var(--dian-blue); color: white; width: 35%; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+
+        .actions { margin-top: 20px; text-align: center; display: none; }
+        .btn { background: var(--dian-blue); color: white; border: none; padding: 12px 25px; font-size: 16px; border-radius: 5px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn:hover { background: #004a94; transform: translateY(-2px); }
+        .footer-note { font-size: 11px; color: #888; margin-top: 30px; text-align: center; line-height: 1.4; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Extracción de Datos - RUT / PDF Colombia</h1>
-    <p>Sube el archivo PDF para extraer la información tributaria.</p>
-    
-    <div class="upload-section">
-        <input type="file" id="pdfUpload" accept=".pdf">
+    <header>
+        <h1>Extractor de Datos RUT (Normativa Colombiana)</h1>
+    </header>
+
+    <div class="upload-box" onclick="document.getElementById('pdfUpload').click()">
+        <p>Haga clic o arrastre aquí el PDF del RUT</p>
+        <input type="file" id="pdfUpload" accept=".pdf" style="display:none">
+        <button class="btn">Seleccionar Archivo</button>
     </div>
 
-    <div id="status"></div>
+    <div id="status">Esperando archivo...</div>
     
-    <table id="dataTable" style="display:none;">
+    <table id="dataTable">
         <thead>
             <tr>
-                <th>Campo</th>
+                <th>Campo DIAN</th>
                 <th>Valor Extraído</th>
             </tr>
         </thead>
         <tbody id="tableBody"></tbody>
     </table>
 
-    <br>
-    <button id="downloadBtn" style="display:none;" onclick="downloadCSV()">Descargar CSV</button>
+    <div class="actions" id="actionArea">
+        <button class="btn" onclick="downloadCSV()">Descargar Datos en CSV</button>
+    </div>
+
+    <div class="footer-note">
+        * Esta herramienta procesa el código localmente en su navegador. Ningún dato es enviado a servidores externos.<br>
+        Optimizado para formatos de Registro Único Tributario (DIAN) 2024-2026.
+    </div>
 </div>
 
 <script>
@@ -54,71 +71,91 @@
         const file = event.target.files[0];
         if (!file) return;
 
-        document.getElementById('status').innerText = "Procesando...";
+        document.getElementById('status').innerText = "Leyendo documento...";
         const reader = new FileReader();
 
         reader.onload = async function() {
-            const typedarray = new Uint8Array(this.result);
-            const pdf = await pdfjsLib.getDocument(typedarray).promise;
-            let fullText = "";
+            try {
+                const typedarray = new Uint8Array(this.result);
+                const pdf = await pdfjsLib.getDocument(typedarray).promise;
+                let fullText = "";
 
-            // Leer todas las páginas
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const textContent = await page.getTextContent();
-                fullText += textContent.items.map(item => item.str).join(" ");
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    fullText += textContent.items.map(item => item.str).join(" ");
+                }
+
+                processRUT(fullText);
+            } catch (error) {
+                document.getElementById('status').innerText = "Error al procesar el PDF. Asegúrese de que no esté protegido.";
+                console.error(error);
             }
-
-            processText(fullText);
         };
         reader.readAsArrayBuffer(file);
     });
 
-function processText(text) {
-    // Normalizamos el texto eliminando saltos de línea innecesarios para facilitar la búsqueda
-    const cleanText = text.replace(/\n/g, " ").replace(/\s+/g, " ");
+    function processRUT(text) {
+        // Normalización de texto para búsqueda limpia
+        const cleanText = text.replace(/\n/g, " ").replace(/\s+/g, " ");
 
-    extractedData = {
-        "NIT": cleanText.match(/5\. Número de Identificación Tributaria \(NIT\)\s*([\d.]+)/i)?.[1] || "No encontrado",
-        "Tipo de contribuyente": cleanText.match(/24\. Tipo de contribuyente\s*([A-Z\s]+?)(?=25|$)/i)?.[1]?.trim() || "No encontrado",
-        "Primer apellido": cleanText.match(/31\. Primer apellido\s*([A-Z]+)/i)?.[1] || "",
-        "Segundo apellido": cleanText.match(/32\. Segundo apellido\s*([A-Z]+)/i)?.[1] || "",
-        "Primer nombre": cleanText.match(/33\. Primer nombre\s*([A-Z]+)/i)?.[1] || "",
-        "Otros nombres": cleanText.match(/34\. Otros nombres\s*([A-Z\s]*?)(?=35|$)/i)?.[1]?.trim() || "",
-        "Razón social": cleanText.match(/35\. Razón social\s*([A-Z\s]*?)(?=36|$)/i)?.[1]?.trim() || "N/A (Persona Natural)",
-        "País": cleanText.match(/38\. Pais\s*([A-Z]+)/i)?.[1] || "COLOMBIA",
-        "Departamento": cleanText.match(/39\. Departamento\s*([A-Z]+)/i)?.[1] || "",
-        "Ciudad/Municipio": cleanText.match(/40\. Ciudad\/Municipio\s*([A-Z]+)/i)?.[1] || "",
-        "Dirección principal": cleanText.match(/41\. Dirección principal\s*([^42]+)/i)?.[1]?.trim() || "",
-        "Correo electrónico": cleanText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || "",
-        "Actividad económica": cleanText.match(/46\. Código\s*(\d{4})/i)?.[1] || "No encontrada"
-    };
+        extractedData = {
+            "NIT": cleanText.match(/5\. Número de Identificación Tributaria \(NIT\)\s*([\d.]+)/i)?.[1] || 
+                   cleanText.match(/26\. Número de Identificación\s*([\d.]+)/i)?.[1] || "No detectado",
+            
+            "Tipo de contribuyente": cleanText.match(/24\. Tipo de contribuyente\s*([A-Z\s]+?)(?=25|$)/i)?.[1]?.trim() || "Persona Natural",
+            
+            "Primer apellido": cleanText.match(/31\. Primer apellido\s*([A-Z]+)/i)?.[1] || "",
+            "Segundo apellido": cleanText.match(/32\. Segundo apellido\s*([A-Z]+)/i)?.[1] || "",
+            "Primer nombre": cleanText.match(/33\. Primer nombre\s*([A-Z]+)/i)?.[1] || "",
+            
+            "Otros nombres": cleanText.match(/34\. Ovos nombres\s*([A-Z\s]+?)(?=35|$)/i)?.[1]?.trim() || 
+                             cleanText.match(/34\. Otros nombres\s*([A-Z\s]+?)(?=35|$)/i)?.[1]?.trim() || "",
+            
+            "Razón social": cleanText.match(/35\. Razón social\s*([A-Z\s]+?)(?=36|$)/i)?.[1]?.trim() || 
+                            cleanText.match(/36\. Nombre comercial\s*([A-Z\s]+?)(?=37|$)/i)?.[1]?.trim() || "N/A",
+            
+            "País": cleanText.match(/38\. Pa[íi]s\s*([A-Z]+)/i)?.[1] || "COLOMBIA",
+            
+            "Departamento": (cleanText.match(/39\. Departamento\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
+            
+            "Ciudad/Municipio": (cleanText.match(/40\. Ciudad\/Municipio\s*(\d*\s*[A-Z]+)/i)?.[1] || "").replace(/\d/g, '').trim(),
+            
+            "Dirección principal": cleanText.match(/41\. Dirección principal\s*([^42]+)/i)?.[1]?.trim() || "",
+            
+            "Correo electrónico": cleanText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || "",
+            
+            "Actividad económica": cleanText.match(/46\. Código\s*(\d{4})/i)?.[1] || "No encontrada"
+        };
 
-    displayData();
-}
+        renderTable();
+    }
 
-    function displayData() {
+    function renderTable() {
         const tableBody = document.getElementById('tableBody');
         tableBody.innerHTML = "";
+        
         for (const [key, value] of Object.entries(extractedData)) {
-            tableBody.innerHTML += `<tr><td><b>${key}</b></td><td>${value}</td></tr>`;
+            tableBody.innerHTML += `<tr><th>${key}</th><td>${value}</td></tr>`;
         }
+
         document.getElementById('dataTable').style.display = "table";
-        document.getElementById('downloadBtn').style.display = "inline-block";
-        document.getElementById('status').innerText = "Extracción completada.";
+        document.getElementById('actionArea').style.display = "block";
+        document.getElementById('status').innerText = "✓ Información extraída con éxito";
     }
 
     function downloadCSV() {
-        let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += Object.keys(extractedData).join(",") + "\n";
-        csvContent += Object.values(extractedData).map(v => `"${v}"`).join(",");
+        const headers = Object.keys(extractedData).join(",");
+        const values = Object.values(extractedData).map(v => `"${v}"`).join(",");
+        const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + headers + "\n" + values;
 
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
         link.setAttribute("href", encodedUri);
-        link.setAttribute("download", "datos_pdf_colombia.csv");
+        link.setAttribute("download", `RUT_Extraido_${extractedData.NIT}.csv`);
         document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
     }
 </script>
 

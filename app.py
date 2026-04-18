@@ -4,77 +4,102 @@ import pandas as pd
 import json
 import io
 
-st.set_page_config(page_title="RUT AI Fix", page_icon="🔧")
-st.title("🔧 Extractor RUT - Versión Estable")
+st.set_page_config(page_title="RUT Extractor Pro", page_icon="📑", layout="wide")
+
+st.title("📑 Extractor de RUT Inteligente (Multiformato)")
+st.markdown("Soporta **Persona Jurídica** y **Persona Natural**. Extrae datos limpios listos para contabilidad.")
 
 # --- 1. CONFIGURACIÓN DE API ---
 try:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
 except Exception:
-    st.error("🔑 API KEY no configurada en Secrets.")
+    st.error("🔑 Error: Configura la 'GOOGLE_API_KEY' en los Secrets de Streamlit.")
     st.stop()
 
-# --- 2. DETECCIÓN AUTOMÁTICA DE MODELO (Solución al error NotFound) ---
-@st.cache_resource # Para no repetir esto en cada clic
-def get_best_model():
-    try:
-        # Listamos los modelos que TU API KEY tiene permitidos
-        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        # Prioridad de modelos para 2026
-        prioridades = [
-            'models/gemini-2.0-pro-exp-02-05', # Versión específica Pro
-            'models/gemini-1.5-pro-latest',    # Versión estable Pro
-            'models/gemini-1.5-pro',           # Respaldo total
-            'models/gemini-1.5-flash'          # Última opción (rápida)
-        ]
-        
-        for p in prioridades:
-            if p in models:
-                return p
-        return models[0] if models else None
-    except Exception as e:
-        return "models/gemini-1.5-pro" # Fallback manual
+# --- 2. MOTOR DE IA ---
+@st.cache_resource
+def get_model():
+    # Buscamos la mejor versión disponible en 2026
+    return genai.GenerativeModel('gemini-1.5-pro')
 
-target_model = get_best_model()
-st.caption(f"Usando motor: {target_model}")
+# --- 3. LÓGICA DE EXTRACCIÓN ---
+files = st.file_uploader("Sube uno o varios archivos RUT (PDF)", type="pdf", accept_multiple_files=True)
 
-# --- 3. PROCESAMIENTO ---
-files = st.file_uploader("Sube tus RUTs", type="pdf", accept_multiple_files=True)
-
-if files and st.button("Extraer"):
+if files and st.button("🚀 Procesar Documentos"):
     resultados = []
-    # Usamos el nombre del modelo detectado dinámicamente
-    model = genai.GenerativeModel(target_model)
+    model = get_model()
     
     for f in files:
-        with st.spinner(f"Leyendo {f.name}..."):
+        with st.spinner(f"Analizando {f.name}..."):
             try:
-                # Prompt reforzado para JSON
-                prompt = "Extrae del RUT: NIT (casilla 5), Apellido1 (31), Apellido2 (32), Nombre1 (33), OtrosNombres (34), Ciudad (40), Actividad (46). Responde SOLO JSON puro."
+                # Prompt diseñado para distinguir entre Natural y Jurídica
+                prompt = """
+                Analiza el RUT adjunto y extrae los datos exactamente en este formato JSON:
+                {
+                  "NIT": "casilla 5",
+                  "Tipo_Contribuyente": "Persona Jurídica o Persona Natural",
+                  "Razon_Social": "casilla 35",
+                  "Primer_Apellido": "casilla 31",
+                  "Segundo_Apellido": "casilla 32",
+                  "Primer_Nombre": "casilla 33",
+                  "Otros_Nombres": "casilla 34",
+                  "Pais": "casilla 38",
+                  "Departamento": "casilla 39 (solo texto)",
+                  "Ciudad": "casilla 40 (solo texto)",
+                  "Direccion": "casilla 41",
+                  "Correo": "casilla 42",
+                  "Telefono": "casilla 44 o 45",
+                  "Actividad_Principal": "casilla 46 (solo los 4 dígitos)",
+                  "Codigo_Postal": "casilla 43"
+                }
+                IMPORTANTE: 
+                - Si es Persona Jurídica, las casillas de nombres (31-34) estarán vacías.
+                - Si es Persona Natural, la casilla de Razón Social (35) estará vacía.
+                - No incluyas etiquetas como 'Primer Apellido' dentro del valor, solo el dato real.
+                """
                 
-                # Leemos el contenido del archivo
                 pdf_data = f.read()
-                
                 response = model.generate_content([
                     prompt,
                     {'mime_type': 'application/pdf', 'data': pdf_data}
                 ])
                 
-                # Limpiador de texto para evitar errores de formato
-                res_text = response.text.replace('```json', '').replace('```', '').strip()
-                resultados.append(json.loads(res_text))
+                # Limpiar la respuesta de la IA
+                clean_json = response.text.replace('```json', '').replace('```', '').strip()
+                data = json.loads(clean_json)
+                
+                # CREAR CAMPO UNIFICADO PARA EL NOMBRE (Para que el Excel sea fácil de leer)
+                if data.get("Razon_Social"):
+                    data["Nombre_Completo_o_Empresa"] = data["Razon_Social"]
+                else:
+                    partes = [data.get("Primer_Nombre", ""), data.get("Otros_Nombres", ""), 
+                              data.get("Primer_Apellido", ""), data.get("Segundo_Apellido", "")]
+                    data["Nombre_Completo_o_Empresa"] = " ".join([p for p in partes if p]).strip()
+                
+                resultados.append(data)
             except Exception as e:
-                st.warning(f"No se pudo leer {f.name}. Error: {str(e)}")
+                st.warning(f"No se pudo extraer {f.name}. Error: {str(e)}")
 
     if resultados:
         df = pd.DataFrame(resultados)
-        st.dataframe(df)
         
-        # Generación de Excel
-        buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
+        # Reordenar columnas para que sea profesional
+        cols = ["NIT", "Nombre_Completo_o_Empresa", "Tipo_Contribuyente", "Ciudad", "Departamento", "Actividad_Principal", "Direccion", "Correo", "Telefono"]
+        # Filtrar solo las que existen
+        df_final = df[[c for c in cols if c in df.columns]]
         
-        st.download_button("Descargar Excel", buffer.getvalue(), "RUT_IA.xlsx")
+        st.success("✅ Extracción completada.")
+        st.dataframe(df_final)
+        
+        # Generar el archivo Excel
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df_final.to_excel(writer, index=False, sheet_name='Base_Datos_RUT')
+        
+        st.download_button(
+            label="📥 Descargar Excel Consolidado",
+            data=output.getvalue(),
+            file_name="RUT_Consolidado_Pro.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )

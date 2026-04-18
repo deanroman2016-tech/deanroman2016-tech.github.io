@@ -9,28 +9,27 @@ import re
 st.set_page_config(page_title="RUT AI Extractor Pro", layout="wide", page_icon="📑")
 
 # --- LÓGICA DE LIMPIEZA (SESSION STATE) ---
-if "limpiar" not in st.session_state:
-    st.session_state.limpiar = False
+if "limpiar_count" not in st.session_state:
+    st.session_state.limpiar_count = 0
 
-def limpiar_todo():
-    st.session_state.limpiar = True
-    st.rerun()
+def ejecutar_limpieza():
+    # Incrementamos un contador para forzar un cambio de KEY en el uploader
+    st.session_state.limpiar_count += 1
 
 # --- BARRA LATERAL (SEGURIDAD Y PRIVACIDAD) ---
 with st.sidebar:
     st.header("🔒 Seguridad y Privacidad")
     st.warning("""
     **Aviso Importante:**
-    1. **Sin Almacenamiento:** Los archivos no se guardan en bases de datos.
+    1. **Sin Almacenamiento:** Los archivos no se guardan en el servidor.
     2. **Sesión Volátil:** Si cierras la pestaña, los datos se borran.
     3. **Privacidad Total:** Procesamiento en memoria RAM temporal.
     """)
     
-    st.info("💡 **Recomendación:** Carga un **máximo de 5 archivos** para garantizar la estabilidad.")
+    st.info("💡 **Recomendación:** Carga un **máximo de 5 archivos** para estabilidad.")
     
-    # BOTÓN DE LIMPIEZA EN EL SIDEBAR
-    if st.button("🧹 Limpiar Todo", on_click=limpiar_todo):
-        st.write("Limpiando...")
+    # BOTÓN DE LIMPIEZA
+    st.button("🧹 Limpiar Todo", on_click=ejecutar_limpieza)
 
     st.divider()
     st.caption("Motor: Gemini 3 Flash Preview | v.2026")
@@ -46,16 +45,12 @@ if "GOOGLE_API_KEY" not in st.secrets:
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # --- 3. CARGA DE ARCHIVOS ---
-# Si se activó la limpieza, reseteamos el key del uploader
-uploader_key = "uploader_limpio" if not st.session_state.limpiar else "uploader_nuevo"
-if st.session_state.limpiar:
-    st.session_state.limpiar = False
-
+# El key dinámico permite resetear el componente al presionar "Limpiar"
 files = st.file_uploader(
     "Sube los archivos RUT (PDF - Máx. 10MB c/u)", 
     type="pdf", 
     accept_multiple_files=True,
-    key=uploader_key
+    key=f"uploader_{st.session_state.limpiar_count}"
 )
 
 # Validación de cantidad
@@ -116,38 +111,42 @@ if files and st.button("🚀 Iniciar Procesamiento Seguro"):
                 resultados.append(data)
 
             except Exception as e:
-                st.error(f"Error en {f.name}: {str(e)[:50]}")
+                st.error(f"Error en {f.name}: Archivo no legible o protegido.")
 
     if resultados:
         # --- ESTRUCTURA RÍGIDA DE 21 COLUMNAS ---
         df_raw = pd.DataFrame(resultados)
-        df_final = pd.DataFrame(columns=range(1, 22))
         
-        # Mapeo de posiciones y NOMBRES DE ENCABEZADOS
-        mapeo_columnas = {
-            1: "Nombre_Completo_o_Empresa",
-            5: "Direccion",
-            6: "Codigo_Postal",
-            7: "Ciudad",
-            8: "Telefono_1",
-            9: "Correo_Electronico",
-            10: "NIT",
-            11: "Tipo_Contribuyente",
-            21: "Actividad_Economica"
+        # Crear DataFrame con nombres genéricos del 1 al 21
+        cols_finales = [f"Columna_{i}" for i in range(1, 22)]
+        df_final = pd.DataFrame(columns=cols_finales)
+        
+        # Mapeo de posiciones (Índice - 1 porque Python cuenta desde 0)
+        mapeo = {
+            0: ("Nombre_Completo_o_Empresa", "Nombre_Final"),
+            4: ("Direccion", "Direccion"),
+            5: ("Codigo_Postal", "Codigo_Postal"),
+            6: ("Ciudad", "Ciudad"),
+            7: ("Telefono_1", "Telefono_1"),
+            8: ("Correo_Electronico", "Correo_Electronico"),
+            9: ("NIT", "NIT"),
+            10: ("Tipo_Contribuyente", "Tipo_Contribuyente"),
+            20: ("Actividad_Economica", "Actividad_Economica")
         }
         
-        # Llenar datos
-        for col_id, campo_ia in mapeo_columnas.items():
-            col_source = "Nombre_Final" if campo_ia == "Nombre_Completo_o_Empresa" else campo_ia
-            if col_source in df_raw.columns:
-                df_final[col_id] = df_raw[col_source]
+        # Llenar datos y renombrar encabezados específicos
+        for idx, (nombre_header, campo_ia) in mapeo.items():
+            if campo_ia in df_raw.columns:
+                df_final.iloc[:, idx] = df_raw[campo_ia]
+            
+            # Cambiamos el nombre del encabezado de "Columna_X" al nombre real
+            df_final.columns.values[idx] = nombre_header
         
-        # Limpieza de actividad
-        if 21 in df_final.columns:
-            df_final[21] = df_final[21].apply(lambda x: "".join(re.findall(r'\d+', str(x))))
-
-        # ASIGNAR NOMBRES A LOS ENCABEZADOS (Reemplaza los números por los nombres en el Excel)
-        df_final = df_final.rename(columns=mapeo_columnas)
+        # Limpieza de actividad (solo números)
+        if "Actividad_Economica" in df_final.columns:
+            df_final["Actividad_Economica"] = df_final["Actividad_Economica"].apply(
+                lambda x: "".join(re.findall(r'\d+', str(x)))
+            )
 
         st.success("✅ Procesamiento completado.")
         st.dataframe(df_final)
@@ -158,8 +157,8 @@ if files and st.button("🚀 Iniciar Procesamiento Seguro"):
             df_final.to_excel(writer, index=False)
         
         st.download_button(
-            label="📥 Descargar Excel con Encabezados",
+            label="📥 Descargar Excel Estructurado",
             data=buf.getvalue(),
-            file_name="RUT_Extraido_Final.xlsx",
+            file_name="RUT_Extraido.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )

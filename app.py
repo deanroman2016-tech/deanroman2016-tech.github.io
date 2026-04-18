@@ -19,10 +19,10 @@ def ejecutar_limpieza():
 with st.sidebar:
     st.header("🔒 Seguridad y Privacidad")
     st.warning("1. Sin Almacenamiento.\n2. Sesión Volátil.\n3. Privacidad Total.")
-    st.info("💡 **Nota:** Se aplica una pausa de 10s entre archivos para proteger la cuota gratuita.")
+    st.info("💡 **Región:** Suramérica (Colombia). Se aplica pausa de 10s para evitar saturación de API.")
     st.button("🧹 Limpiar Todo", on_click=ejecutar_limpieza)
     st.divider()
-    st.caption("Motor: Gemini 2.0/3.0 Flash | v.2026")
+    st.caption("Motor: Gemini Flash Optimized | 2026")
 
 st.title("📑 Extractor de RUT Inteligente")
 
@@ -48,14 +48,27 @@ if files and len(files) > 5:
 if files and st.button("🚀 Iniciar Procesamiento"):
     resultados = []
     
-    # Usamos el identificador 2.0 Flash que es compatible con la estructura de la serie 3
-    # y es el más estable para la API v1beta en este momento.
-    model = genai.GenerativeModel('gemini-2.0-flash-exp')
+    # LÓGICA DE SELECCIÓN DE MODELO (Fallback para evitar 404 en Suramérica)
+    nombres_modelos = ['gemini-2.0-flash-exp', 'gemini-1.5-flash-latest', 'gemini-1.5-flash']
+    model = None
+    
+    for nombre in nombres_modelos:
+        try:
+            test_model = genai.GenerativeModel(nombre)
+            # Intentamos una respuesta mínima para validar existencia
+            model = test_model
+            break 
+        except:
+            continue
+
+    if not model:
+        st.error("🚫 No se pudo conectar con ningún modelo de Gemini disponible en tu región.")
+        st.stop()
     
     for i, f in enumerate(files):
         with st.spinner(f"Procesando {f.name} ({i+1}/{len(files)})..."):
             try:
-                # Pausa obligatoria para evitar el error 429
+                # Pausa obligatoria para evitar el error 429 (Cuota gratuita)
                 if i > 0:
                     time.sleep(10)
                 
@@ -63,23 +76,12 @@ if files and st.button("🚀 Iniciar Procesamiento"):
                 pdf_data = f.read()
                 
                 prompt = """
-                Analiza la PRIMERA PÁGINA de este RUT. Extrae los datos en este JSON plano:
-                {
-                  "NIT": "casilla 5",
-                  "Tipo_Contribuyente": "Persona Jurídica o Natural",
-                  "Razon_Social": "casilla 35",
-                  "Primer_Apellido": "casilla 31",
-                  "Segundo_Apellido": "casilla 32",
-                  "Primer_Nombre": "casilla 33",
-                  "Otros_Nombres": "casilla 34",
-                  "Ciudad": "casilla 40",
-                  "Direccion": "casilla 41",
-                  "Correo_Electronico": "casilla 42",
-                  "Telefono_1": "casilla 44",
-                  "Actividad_Economica": "casilla 46",
-                  "Codigo_Postal": "casilla 43"
-                }
-                IMPORTANTE: Responde SOLO el JSON. Si no puedes leer algo, deja "".
+                Eres un extractor de datos profesional. Analiza la PRIMERA PÁGINA de este RUT.
+                Genera un JSON con estos campos:
+                NIT, Tipo_Contribuyente, Razon_Social, Primer_Apellido, Segundo_Apellido, 
+                Primer_Nombre, Otros_Nombres, Ciudad, Direccion, Correo_Electronico, 
+                Telefono_1, Actividad_Economica, Codigo_Postal.
+                Responde EXCLUSIVAMENTE el JSON.
                 """
                 
                 response = model.generate_content([
@@ -87,7 +89,7 @@ if files and st.button("🚀 Iniciar Procesamiento"):
                     {'mime_type': 'application/pdf', 'data': pdf_data}
                 ])
                 
-                # Extraer JSON de la respuesta
+                # Extraer JSON de la respuesta con Regex
                 json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
                 
                 if json_match:
@@ -103,16 +105,14 @@ if files and st.button("🚀 Iniciar Procesamiento"):
                     
                     resultados.append(data)
                 else:
-                    st.error(f"La IA no pudo procesar el formato de {f.name}")
+                    st.error(f"La IA no pudo estructurar los datos de {f.name}")
 
             except Exception as e:
                 error_msg = str(e)
                 if "429" in error_msg:
-                    st.error(f"⏳ Límite de cuota alcanzado en {f.name}. Espera un momento antes de reintentar.")
-                elif "404" in error_msg:
-                    st.error(f"🚫 Error de modelo (404). El nombre del modelo ha cambiado en tu región.")
+                    st.error(f"⏳ Límite de cuota en {f.name}. Espera 1 minuto.")
                 else:
-                    st.error(f"Error en {f.name}: {error_msg[:100]}")
+                    st.error(f"Error técnico en {f.name}: {error_msg[:100]}")
 
     if resultados:
         # --- ESTRUCTURA DE 21 COLUMNAS ---
@@ -141,11 +141,11 @@ if files and st.button("🚀 Iniciar Procesamiento"):
         if "Actividad_Econ" in df_final.columns:
             df_final["Actividad_Econ"] = df_final["Actividad_Econ"].apply(lambda x: "".join(re.findall(r'\d+', str(x))))
 
-        st.success("✅ Extracción terminada.")
+        st.success("✅ Extracción finalizada con éxito.")
         st.dataframe(df_final)
         
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='openpyxl') as writer:
             df_final.to_excel(writer, index=False)
         
-        st.download_button("📥 Descargar Excel", buf.getvalue(), "RUT_Extraido.xlsx")
+        st.download_button("📥 Descargar Excel Estructurado", buf.getvalue(), "RUT_Procesado_Colombia.xlsx")

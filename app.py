@@ -5,7 +5,7 @@ import json
 import io
 
 st.set_page_config(page_title="RUT AI Extractor", page_icon="📑", layout="wide")
-st.title("📑 Extractor de RUT Personalizado")
+st.title("📑 Extractor RUT - Solo 1ra Página")
 
 # --- 1. CONFIGURACIÓN DE API ---
 if "GOOGLE_API_KEY" not in st.secrets:
@@ -14,12 +14,15 @@ if "GOOGLE_API_KEY" not in st.secrets:
 
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# --- 2. MOTOR DE IA ---
-@st.cache_resource
+# --- 2. MOTOR DE IA (Fallback a Flash si Pro falla) ---
 def get_model():
-    return genai.GenerativeModel('gemini-1.5-pro')
+    # Intentamos con 1.5-pro, si da 404, usamos 1.5-flash
+    try:
+        return genai.GenerativeModel('gemini-1.5-pro')
+    except:
+        return genai.GenerativeModel('gemini-1.5-flash')
 
-# --- 3. INTERFAZ Y PROCESAMIENTO ---
+# --- 3. PROCESAMIENTO ---
 files = st.file_uploader("Sube tus RUTs (PDF)", type="pdf", accept_multiple_files=True)
 
 if files and st.button("🚀 Procesar Documentos"):
@@ -29,30 +32,26 @@ if files and st.button("🚀 Procesar Documentos"):
     for f in files:
         with st.spinner(f"Analizando {f.name}..."):
             try:
-                # Prompt con instrucción de Primera Página e índices específicos
+                # Instrucción estricta de Primera Página
                 prompt = """
-                Analiza ÚNICAMENTE la PRIMERA PÁGINA de este documento RUT. 
-                Ignora cualquier información que se encuentre en las páginas 2 en adelante.
-                
-                Extrae la información en este formato JSON estricto:
+                Analiza EXCLUSIVAMENTE la PRIMERA PÁGINA de este RUT.
+                Extrae estos datos en JSON:
                 {
                   "NIT": "casilla 5",
-                  "Tipo_Contribuyente": "Persona Jurídica o Persona Natural",
+                  "Tipo_Contribuyente": "Persona Jurídica o Natural",
                   "Razon_Social": "casilla 35",
                   "Primer_Apellido": "casilla 31",
                   "Segundo_Apellido": "casilla 32",
                   "Primer_Nombre": "casilla 33",
                   "Otros_Nombres": "casilla 34",
-                  "Ciudad": "casilla 40 (solo texto)",
+                  "Ciudad": "casilla 40",
                   "Direccion": "casilla 41",
                   "Correo_Electronico": "casilla 42",
                   "Telefono_1": "casilla 44",
-                  "Actividad_Economica": "casilla 46 (solo los 4 dígitos)",
+                  "Actividad_Economica": "casilla 46",
                   "Codigo_Postal": "casilla 43"
                 }
-                
-                IMPORTANTE: Si la casilla 35 tiene datos, es una empresa. 
-                Responde ÚNICAMENTE el JSON plano.
+                Si es empresa, Razon_Social es el nombre. Responde solo JSON.
                 """
                 
                 content = f.read()
@@ -64,28 +63,28 @@ if files and st.button("🚀 Procesar Documentos"):
                 res_text = response.text.replace('```json', '').replace('```', '').strip()
                 data = json.loads(res_text)
                 
-                # Unificación de Nombre
+                # Unificar Nombre
                 if data.get("Razon_Social"):
-                    data["Nombre_Completo_o_Empresa"] = data["Razon_Social"]
+                    data["Nombre_Final"] = data["Razon_Social"]
                 else:
-                    partes = [data.get("Primer_Nombre",""), data.get("Otros_Nombres",""), 
-                              data.get("Primer_Apellido",""), data.get("Segundo_Apellido","")]
-                    data["Nombre_Completo_o_Empresa"] = " ".join([p for p in partes if p]).strip()
+                    n = [data.get("Primer_Nombre",""), data.get("Otros_Nombres",""), 
+                         data.get("Primer_Apellido",""), data.get("Segundo_Apellido","")]
+                    data["Nombre_Final"] = " ".join([p for p in n if p]).strip()
                 
                 resultados.append(data)
             except Exception as e:
-                st.error(f"Error en {f.name}: {str(e)}")
+                st.error(f"Error en {f.name}: Revisa que tu API Key tenga permisos.")
 
     if resultados:
-        # 1. Crear DataFrame base
+        # --- LÓGICA DE 21 COLUMNAS ---
         df_raw = pd.DataFrame(resultados)
         
-        # 2. Crear DataFrame de 21 columnas (Índices del 1 al 21)
-        df_final = pd.DataFrame(columns=range(1, 22))
+        # Crear estructura de 21 columnas (vacías)
+        df_excel = pd.DataFrame(columns=range(1, 22))
         
-        # 3. Mapeo a posiciones exactas solicitadas
+        # Mapeo según tus índices exactos
         mapeo = {
-            1: "Nombre_Completo_o_Empresa",
+            1: "Nombre_Final",
             5: "Direccion",
             6: "Codigo_Postal",
             7: "Ciudad",
@@ -96,20 +95,19 @@ if files and st.button("🚀 Procesar Documentos"):
             21: "Actividad_Economica"
         }
         
-        for col_index, field_name in mapeo.items():
-            if field_name in df_raw.columns:
-                df_final[col_index] = df_raw[field_name]
-            else:
-                df_final[col_index] = ""
+        for num, campo in mapeo.items():
+            if campo in df_raw.columns:
+                df_excel[num] = df_raw[campo]
+        
+        # Limpieza final de la Actividad (solo números)
+        if 21 in df_excel.columns:
+            df_excel[21] = df_excel[21].astype(str).str.extract('(\d+)')
 
-        # Opcional: Renombrar para que el usuario vea qué es cada columna en la web
-        df_final = df_final.rename(columns=mapeo)
-
-        st.success("✅ Extracción terminada (Solo primera página procesada).")
-        st.dataframe(df_final)
+        st.success("✅ Procesado con éxito.")
+        st.dataframe(df_excel)
         
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_final.to_excel(writer, index=False)
+            df_excel.to_excel(writer, index=False)
         
-        st.download_button("📥 Descargar Excel Estructurado", output.getvalue(), "RUT_Final_Estructurado.xlsx")
+        st.download_button("📥 Descargar Excel Estructurado", output.getvalue(), "RUT_Final.xlsx")

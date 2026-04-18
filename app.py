@@ -4,33 +4,38 @@ import pandas as pd
 import json
 import io
 
-# Configuración de página
-st.set_page_config(page_title="RUT Extractor v2026", layout="wide")
-st.title("📑 Extractor RUT - Formato Estricto 21 Columnas")
+# Configuración visual de la App
+st.set_page_config(page_title="RUT AI Extractor 2026", layout="wide")
+st.title("📑 Extractor RUT - Gemini 3 Flash")
+st.markdown("Extracción estricta de **primera página** con formato de 21 columnas.")
 
-# --- 1. CONFIGURACIÓN DE API ---
+# --- 1. CONFIGURACIÓN DE SEGURIDAD (API KEY) ---
 if "GOOGLE_API_KEY" not in st.secrets:
-    st.error("🔑 Error: Configura 'GOOGLE_API_KEY' en los Secrets de Streamlit.")
+    st.error("🔑 Falta la clave 'GOOGLE_API_KEY' en los Secrets de Streamlit.")
     st.stop()
 
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# --- 2. PROCESAMIENTO ---
-files = st.file_uploader("Sube tus RUTs (PDF)", type="pdf", accept_multiple_files=True)
+# --- 2. PROCESAMIENTO CON MODELO 2026 ---
+files = st.file_uploader("Sube tus archivos RUT (PDF)", type="pdf", accept_multiple_files=True)
 
-if files and st.button("🚀 Procesar"):
+if files and st.button("🚀 Ejecutar Extracción Inteligente"):
     resultados = []
     
-    # Forzamos Gemini 1.5 Flash que tiene mayor disponibilidad y menos errores 404
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Usamos la versión más reciente disponible en el Free Tier
+    try:
+        model = genai.GenerativeModel('gemini-3-flash-preview')
+    except:
+        # Fallback de seguridad por si la región aún no actualizó el nombre del modelo
+        model = genai.GenerativeModel('gemini-1.5-flash')
     
     for f in files:
-        with st.spinner(f"Leyendo {f.name}..."):
+        with st.spinner(f"Gemini 3 analizando: {f.name}..."):
             try:
-                # Prompt con las nuevas restricciones de página e índices
+                # Prompt optimizado para evitar errores de campos vacíos
                 prompt = """
                 Analiza EXCLUSIVAMENTE la PRIMERA PÁGINA de este RUT.
-                Extrae estos datos en un JSON plano:
+                Extrae los datos en este JSON plano (si el dato no existe, deja ""):
                 {
                   "NIT": "casilla 5",
                   "Tipo_Contribuyente": "Persona Jurídica o Persona Natural",
@@ -39,14 +44,14 @@ if files and st.button("🚀 Procesar"):
                   "Segundo_Apellido": "casilla 32",
                   "Primer_Nombre": "casilla 33",
                   "Otros_Nombres": "casilla 34",
-                  "Ciudad": "casilla 40 (solo el nombre del municipio)",
+                  "Ciudad": "casilla 40 (solo nombre)",
                   "Direccion": "casilla 41",
                   "Correo_Electronico": "casilla 42",
                   "Telefono_1": "casilla 44",
-                  "Actividad_Economica": "casilla 46 (solo los 4 dígitos)",
+                  "Actividad_Economica": "casilla 46 (4 dígitos)",
                   "Codigo_Postal": "casilla 43"
                 }
-                Si la casilla 35 tiene texto, úsala como nombre principal. Responde solo JSON.
+                Responde únicamente el JSON plano.
                 """
                 
                 content = f.read()
@@ -55,11 +60,11 @@ if files and st.button("🚀 Procesar"):
                     {'mime_type': 'application/pdf', 'data': content}
                 ])
                 
-                # Limpiar y cargar JSON
-                res_text = response.text.replace('```json', '').replace('```', '').strip()
-                data = json.loads(res_text)
+                # Limpieza de caracteres extra
+                clean_res = response.text.replace('```json', '').replace('```', '').strip()
+                data = json.loads(clean_res)
                 
-                # Lógica de Nombre para la Columna 1
+                # Unificación de Nombre (Lógica Contable)
                 if data.get("Razon_Social"):
                     data["Nombre_Final"] = data["Razon_Social"]
                 else:
@@ -69,17 +74,17 @@ if files and st.button("🚀 Procesar"):
                 
                 resultados.append(data)
             except Exception as e:
-                st.error(f"Error procesando {f.name}: {str(e)}")
+                st.error(f"No se pudo procesar {f.name}. Verifica que sea un PDF de RUT legible.")
 
     if resultados:
-        # --- ESTRUCTURA DE 21 COLUMNAS ---
+        # --- CREACIÓN DE ESTRUCTURA DE 21 COLUMNAS ---
         df_raw = pd.DataFrame(resultados)
         
-        # Creamos el DataFrame con columnas del 1 al 21
+        # Creamos el molde de 21 columnas (vacías)
         df_excel = pd.DataFrame(columns=range(1, 22))
         
-        # Mapeo según tus instrucciones exactas
-        mapeo = {
+        # Mapeo según tus índices de columna específicos
+        mapeo_indices = {
             1: "Nombre_Final",
             5: "Direccion",
             6: "Codigo_Postal",
@@ -91,22 +96,27 @@ if files and st.button("🚀 Procesar"):
             21: "Actividad_Economica"
         }
         
-        # Llenar las columnas específicas
-        for col_num, campo in mapeo.items():
-            if campo in df_raw.columns:
-                df_excel[col_num] = df_raw[campo]
-            else:
-                df_excel[col_num] = ""
+        for num_col, campo_ia in mapeo_indices.items():
+            if campo_ia in df_raw.columns:
+                df_excel[num_col] = df_raw[campo_ia]
         
-        # Renombrar solo para visualización
-        df_excel.columns = [mapeo.get(i, f"Columna_{i}") for i in df_excel.columns]
+        # Limpieza de Actividad (solo los números)
+        if 21 in df_excel.columns:
+            df_excel[21] = df_excel[21].astype(str).str.extract('(\d+)')
 
-        st.success("✅ Extracción exitosa.")
-        st.dataframe(df_excel)
+        # Mostrar en pantalla con nombres amigables
+        df_display = df_excel.rename(columns=mapeo_indices)
+        st.success("✅ Extracción terminada.")
+        st.dataframe(df_display)
         
-        # Exportar a Excel
+        # Preparar Excel para descarga
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_excel.to_excel(writer, index=False)
         
-        st.download_button("📥 Descargar Excel", output.getvalue(), "RUT_Estructurado.xlsx")
+        st.download_button(
+            label="📥 Descargar Excel Estructurado (21 Cols)",
+            data=output.getvalue(),
+            file_name="RUT_Extraido_2026.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )

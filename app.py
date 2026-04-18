@@ -21,7 +21,7 @@ with st.sidebar:
     st.info("💡 **Recomendación:** Carga máximo 5 archivos.")
     st.button("🧹 Limpiar Todo", on_click=ejecutar_limpieza)
     st.divider()
-    st.caption("Motor: Gemini 3 Flash | v.2026")
+    st.caption("Motor: Gemini 3.0 Preview | v.2026")
 
 st.title("📑 Extractor de RUT Inteligente")
 
@@ -41,27 +41,28 @@ files = st.file_uploader(
 )
 
 if files and len(files) > 5:
-    st.error("⚠️ Máximo 5 archivos.")
+    st.error("⚠️ Máximo 5 archivos permitidos.")
     st.stop()
 
-if files and st.button("🚀 Iniciar Procesamiento"):
+if files and st.button("🚀 Iniciar Procesamiento con Gemini 3.0"):
     resultados = []
     
-    # Intentamos forzar el uso de Gemini 1.5 Flash si el 3 da problemas de legibilidad
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # Intentar cargar Gemini 3.0 Preview (Identificador de 2026)
+    try:
+        model = genai.GenerativeModel('gemini-3-flash-preview')
+    except:
+        # Fallback por si el SDK local usa nombres experimentales
+        model = genai.GenerativeModel('gemini-2.0-flash-exp')
     
     for f in files:
-        with st.spinner(f"Analizando {f.name}..."):
+        with st.spinner(f"Gemini 3 analizando {f.name}..."):
             try:
-                # RESET DEL PUNTERO DEL ARCHIVO
                 f.seek(0)
                 pdf_data = f.read()
                 
-                # PROMPT REFORZADO PARA ARCHIVOS "DIFÍCILES"
                 prompt = """
-                Eres un sistema OCR avanzado. Analiza la PRIMERA PÁGINA de este RUT.
-                Incluso si el archivo parece protegido o tiene firmas digitales, extrae el texto visible.
-                Genera este JSON plano:
+                Analiza la PRIMERA PÁGINA de este RUT de la DIAN.
+                Ignora páginas adicionales. Extrae los datos en este JSON plano:
                 {
                   "NIT": "casilla 5",
                   "Tipo_Contribuyente": "Persona Jurídica o Natural",
@@ -77,23 +78,22 @@ if files and st.button("🚀 Iniciar Procesamiento"):
                   "Actividad_Economica": "casilla 46",
                   "Codigo_Postal": "casilla 43"
                 }
-                Si no puedes leer un campo, deja "". Responde SOLO el JSON.
+                Responde ÚNICAMENTE el JSON.
                 """
                 
-                # ENVIAR COMO BYTES DIRECTOS
+                # Formato de envío para Gemini 3
                 response = model.generate_content([
-                    {'mime_type': 'application/pdf', 'data': pdf_data},
-                    prompt
+                    prompt,
+                    {'mime_type': 'application/pdf', 'data': pdf_data}
                 ])
                 
-                # Limpieza de la respuesta de texto
-                raw_text = response.text
-                json_match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+                # Extraer JSON de la respuesta (maneja posibles textos extra)
+                json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
                 
                 if json_match:
                     data = json.loads(json_match.group())
                     
-                    # Unificación de nombre
+                    # Lógica de nombre unificado
                     if data.get("Razon_Social") and data["Razon_Social"].strip():
                         data["Nombre_Final"] = data["Razon_Social"]
                     else:
@@ -103,10 +103,10 @@ if files and st.button("🚀 Iniciar Procesamiento"):
                     
                     resultados.append(data)
                 else:
-                    st.error(f"La IA no pudo estructurar los datos de {f.name}")
+                    st.error(f"No se pudo estructurar la respuesta de {f.name}")
 
             except Exception as e:
-                st.error(f"Error técnico en {f.name}: {str(e)[:100]}")
+                st.error(f"Error en {f.name}: {str(e)}")
 
     if resultados:
         # --- ESTRUCTURA DE 21 COLUMNAS ---
@@ -135,11 +135,11 @@ if files and st.button("🚀 Iniciar Procesamiento"):
         if "Actividad_Econ" in df_final.columns:
             df_final["Actividad_Econ"] = df_final["Actividad_Econ"].apply(lambda x: "".join(re.findall(r'\d+', str(x))))
 
-        st.success("✅ Procesamiento terminado.")
+        st.success("✅ Extracción con Gemini 3 completada.")
         st.dataframe(df_final)
         
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='openpyxl') as writer:
             df_final.to_excel(writer, index=False)
         
-        st.download_button("📥 Descargar Excel", buf.getvalue(), "RUT_Extraido.xlsx")
+        st.download_button("📥 Descargar Excel", buf.getvalue(), "RUT_Extraido_G3.xlsx")

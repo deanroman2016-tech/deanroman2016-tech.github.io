@@ -4,8 +4,9 @@ import pandas as pd
 import json
 import io
 
-st.set_page_config(page_title="RUT AI Extractor", page_icon="📑", layout="wide")
-st.title("📑 Extractor RUT - Solo 1ra Página")
+# Configuración de página
+st.set_page_config(page_title="RUT Extractor v2026", layout="wide")
+st.title("📑 Extractor RUT - Formato Estricto 21 Columnas")
 
 # --- 1. CONFIGURACIÓN DE API ---
 if "GOOGLE_API_KEY" not in st.secrets:
@@ -14,44 +15,38 @@ if "GOOGLE_API_KEY" not in st.secrets:
 
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# --- 2. MOTOR DE IA (Fallback a Flash si Pro falla) ---
-def get_model():
-    # Intentamos con 1.5-pro, si da 404, usamos 1.5-flash
-    try:
-        return genai.GenerativeModel('gemini-1.5-pro')
-    except:
-        return genai.GenerativeModel('gemini-1.5-flash')
-
-# --- 3. PROCESAMIENTO ---
+# --- 2. PROCESAMIENTO ---
 files = st.file_uploader("Sube tus RUTs (PDF)", type="pdf", accept_multiple_files=True)
 
-if files and st.button("🚀 Procesar Documentos"):
+if files and st.button("🚀 Procesar"):
     resultados = []
-    model = get_model()
+    
+    # Forzamos Gemini 1.5 Flash que tiene mayor disponibilidad y menos errores 404
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
     for f in files:
-        with st.spinner(f"Analizando {f.name}..."):
+        with st.spinner(f"Leyendo {f.name}..."):
             try:
-                # Instrucción estricta de Primera Página
+                # Prompt con las nuevas restricciones de página e índices
                 prompt = """
                 Analiza EXCLUSIVAMENTE la PRIMERA PÁGINA de este RUT.
-                Extrae estos datos en JSON:
+                Extrae estos datos en un JSON plano:
                 {
                   "NIT": "casilla 5",
-                  "Tipo_Contribuyente": "Persona Jurídica o Natural",
+                  "Tipo_Contribuyente": "Persona Jurídica o Persona Natural",
                   "Razon_Social": "casilla 35",
                   "Primer_Apellido": "casilla 31",
                   "Segundo_Apellido": "casilla 32",
                   "Primer_Nombre": "casilla 33",
                   "Otros_Nombres": "casilla 34",
-                  "Ciudad": "casilla 40",
+                  "Ciudad": "casilla 40 (solo el nombre del municipio)",
                   "Direccion": "casilla 41",
                   "Correo_Electronico": "casilla 42",
                   "Telefono_1": "casilla 44",
-                  "Actividad_Economica": "casilla 46",
+                  "Actividad_Economica": "casilla 46 (solo los 4 dígitos)",
                   "Codigo_Postal": "casilla 43"
                 }
-                Si es empresa, Razon_Social es el nombre. Responde solo JSON.
+                Si la casilla 35 tiene texto, úsala como nombre principal. Responde solo JSON.
                 """
                 
                 content = f.read()
@@ -60,10 +55,11 @@ if files and st.button("🚀 Procesar Documentos"):
                     {'mime_type': 'application/pdf', 'data': content}
                 ])
                 
+                # Limpiar y cargar JSON
                 res_text = response.text.replace('```json', '').replace('```', '').strip()
                 data = json.loads(res_text)
                 
-                # Unificar Nombre
+                # Lógica de Nombre para la Columna 1
                 if data.get("Razon_Social"):
                     data["Nombre_Final"] = data["Razon_Social"]
                 else:
@@ -73,16 +69,16 @@ if files and st.button("🚀 Procesar Documentos"):
                 
                 resultados.append(data)
             except Exception as e:
-                st.error(f"Error en {f.name}: Revisa que tu API Key tenga permisos.")
+                st.error(f"Error procesando {f.name}: {str(e)}")
 
     if resultados:
-        # --- LÓGICA DE 21 COLUMNAS ---
+        # --- ESTRUCTURA DE 21 COLUMNAS ---
         df_raw = pd.DataFrame(resultados)
         
-        # Crear estructura de 21 columnas (vacías)
+        # Creamos el DataFrame con columnas del 1 al 21
         df_excel = pd.DataFrame(columns=range(1, 22))
         
-        # Mapeo según tus índices exactos
+        # Mapeo según tus instrucciones exactas
         mapeo = {
             1: "Nombre_Final",
             5: "Direccion",
@@ -95,19 +91,22 @@ if files and st.button("🚀 Procesar Documentos"):
             21: "Actividad_Economica"
         }
         
-        for num, campo in mapeo.items():
+        # Llenar las columnas específicas
+        for col_num, campo in mapeo.items():
             if campo in df_raw.columns:
-                df_excel[num] = df_raw[campo]
+                df_excel[col_num] = df_raw[campo]
+            else:
+                df_excel[col_num] = ""
         
-        # Limpieza final de la Actividad (solo números)
-        if 21 in df_excel.columns:
-            df_excel[21] = df_excel[21].astype(str).str.extract('(\d+)')
+        # Renombrar solo para visualización
+        df_excel.columns = [mapeo.get(i, f"Columna_{i}") for i in df_excel.columns]
 
-        st.success("✅ Procesado con éxito.")
+        st.success("✅ Extracción exitosa.")
         st.dataframe(df_excel)
         
+        # Exportar a Excel
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
             df_excel.to_excel(writer, index=False)
         
-        st.download_button("📥 Descargar Excel Estructurado", output.getvalue(), "RUT_Final.xlsx")
+        st.download_button("📥 Descargar Excel", output.getvalue(), "RUT_Estructurado.xlsx")

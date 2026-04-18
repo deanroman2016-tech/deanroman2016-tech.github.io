@@ -19,10 +19,10 @@ def ejecutar_limpieza():
 with st.sidebar:
     st.header("🔒 Seguridad y Privacidad")
     st.warning("1. Sin Almacenamiento.\n2. Sesión Volátil.\n3. Privacidad Total.")
-    st.info("💡 **Región:** Suramérica (Colombia). Se aplica pausa de 10s para evitar saturación de API.")
+    st.info("💡 **Región:** Colombia. Procesamiento optimizado para estabilidad de cuota.")
     st.button("🧹 Limpiar Todo", on_click=ejecutar_limpieza)
     st.divider()
-    st.caption("Motor: Gemini Flash Optimized | 2026")
+    st.caption("Motor: Gemini Auto-Detect | v.2026")
 
 st.title("📑 Extractor de RUT Inteligente")
 
@@ -48,27 +48,32 @@ if files and len(files) > 5:
 if files and st.button("🚀 Iniciar Procesamiento"):
     resultados = []
     
-    # LÓGICA DE SELECCIÓN DE MODELO (Fallback para evitar 404 en Suramérica)
-    nombres_modelos = ['gemini-2.0-flash-exp', 'gemini-1.5-flash-latest', 'gemini-1.5-flash']
+    # --- LÓGICA DE AUTO-DETECCIÓN DE MODELO ---
     model = None
+    # Probamos nombres en orden de modernidad para 2026
+    candidatos = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b']
     
-    for nombre in nombres_modelos:
-        try:
-            test_model = genai.GenerativeModel(nombre)
-            # Intentamos una respuesta mínima para validar existencia
-            model = test_model
-            break 
-        except:
-            continue
-
-    if not model:
-        st.error("🚫 No se pudo conectar con ningún modelo de Gemini disponible en tu región.")
-        st.stop()
-    
-    for i, f in enumerate(files):
-        with st.spinner(f"Procesando {f.name} ({i+1}/{len(files)})..."):
+    with st.status("Verificando conexión con Google AI...", expanded=False) as status:
+        for nombre in candidatos:
             try:
-                # Pausa obligatoria para evitar el error 429 (Cuota gratuita)
+                m = genai.GenerativeModel(nombre)
+                # Intento de generación mínima para validar
+                m.generate_content("test") 
+                model = m
+                st.write(f"Conectado exitosamente a: {nombre}")
+                break
+            except:
+                continue
+        
+        if not model:
+            st.error("No se encontraron modelos disponibles. Revisa tu API Key.")
+            st.stop()
+        status.update(label="Conexión establecida", state="complete")
+
+    for i, f in enumerate(files):
+        with st.spinner(f"Analizando {f.name} ({i+1}/{len(files)})..."):
+            try:
+                # Pausa de 10s para evitar Error 429 en plan gratuito
                 if i > 0:
                     time.sleep(10)
                 
@@ -76,12 +81,11 @@ if files and st.button("🚀 Iniciar Procesamiento"):
                 pdf_data = f.read()
                 
                 prompt = """
-                Eres un extractor de datos profesional. Analiza la PRIMERA PÁGINA de este RUT.
-                Genera un JSON con estos campos:
+                Analiza la PRIMERA PÁGINA de este RUT. Extrae en JSON:
                 NIT, Tipo_Contribuyente, Razon_Social, Primer_Apellido, Segundo_Apellido, 
                 Primer_Nombre, Otros_Nombres, Ciudad, Direccion, Correo_Electronico, 
                 Telefono_1, Actividad_Economica, Codigo_Postal.
-                Responde EXCLUSIVAMENTE el JSON.
+                Responde ÚNICAMENTE el objeto JSON.
                 """
                 
                 response = model.generate_content([
@@ -89,30 +93,26 @@ if files and st.button("🚀 Iniciar Procesamiento"):
                     {'mime_type': 'application/pdf', 'data': pdf_data}
                 ])
                 
-                # Extraer JSON de la respuesta con Regex
+                # Extraer JSON con Regex robusto
                 json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
                 
                 if json_match:
                     data = json.loads(json_match.group())
                     
-                    # Unificación de nombre
-                    if data.get("Razon_Social") and data["Razon_Social"].strip():
+                    # Lógica de nombre unificado
+                    if data.get("Razon_Social") and str(data["Razon_Social"]).strip():
                         data["Nombre_Final"] = data["Razon_Social"]
                     else:
                         partes = [data.get("Primer_Nombre",""), data.get("Otros_Nombres",""), 
                                  data.get("Primer_Apellido",""), data.get("Segundo_Apellido","")]
-                        data["Nombre_Final"] = " ".join([n for n in partes if n]).strip()
+                        data["Nombre_Final"] = " ".join([str(n) for n in partes if n]).strip()
                     
                     resultados.append(data)
                 else:
-                    st.error(f"La IA no pudo estructurar los datos de {f.name}")
+                    st.error(f"Error de formato en {f.name}")
 
             except Exception as e:
-                error_msg = str(e)
-                if "429" in error_msg:
-                    st.error(f"⏳ Límite de cuota en {f.name}. Espera 1 minuto.")
-                else:
-                    st.error(f"Error técnico en {f.name}: {error_msg[:100]}")
+                st.error(f"No se pudo procesar {f.name}: {str(e)[:100]}")
 
     if resultados:
         # --- ESTRUCTURA DE 21 COLUMNAS ---
@@ -137,15 +137,17 @@ if files and st.button("🚀 Iniciar Procesamiento"):
                 df_final.iloc[:, idx] = df_raw[campo]
             df_final.columns.values[idx] = header
         
-        # Limpieza de actividad
+        # Limpieza de actividad (solo números)
         if "Actividad_Econ" in df_final.columns:
-            df_final["Actividad_Econ"] = df_final["Actividad_Econ"].apply(lambda x: "".join(re.findall(r'\d+', str(x))))
+            df_final["Actividad_Econ"] = df_final["Actividad_Econ"].apply(
+                lambda x: "".join(re.findall(r'\d+', str(x)))
+            )
 
-        st.success("✅ Extracción finalizada con éxito.")
+        st.success("✅ Extracción finalizada.")
         st.dataframe(df_final)
         
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='openpyxl') as writer:
             df_final.to_excel(writer, index=False)
         
-        st.download_button("📥 Descargar Excel Estructurado", buf.getvalue(), "RUT_Procesado_Colombia.xlsx")
+        st.download_button("📥 Descargar Excel", buf.getvalue(), "RUT_Extraido_Final.xlsx")

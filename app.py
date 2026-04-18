@@ -9,28 +9,18 @@ import time
 # 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(page_title="RUT AI Extractor Pro", layout="wide", page_icon="📑")
 
-# Lógica para resetear el cargador de archivos
 if "limpiar_count" not in st.session_state:
     st.session_state.limpiar_count = 0
 
 def ejecutar_limpieza():
     st.session_state.limpiar_count += 1
 
-# --- BARRA LATERAL (CONFIGURACIÓN Y PRIVACIDAD) ---
+# --- BARRA LATERAL ---
 with st.sidebar:
     st.header("🔒 Seguridad y Privacidad")
-    st.warning("""
-    **Aviso:**
-    1. **Sin Almacenamiento:** Los datos no se guardan en el servidor.
-    2. **Sesión Volátil:** Al cerrar la pestaña, todo se borra.
-    3. **Privacidad:** Procesamiento en memoria temporal.
-    """)
-    
-    st.info("💡 **Región:** Colombia. Procesamiento optimizado con pausas de seguridad.")
-    
-    # BOTÓN DE LIMPIEZA
+    st.warning("1. Sin Almacenamiento.\n2. Sesión Volátil.\n3. Privacidad Total.")
+    st.info("💡 **Región:** Colombia. Pausa de 10s activa para evitar error 429.")
     st.button("🧹 Limpiar Todo", on_click=ejecutar_limpieza)
-    
     st.divider()
     st.caption("Motor: Gemini Auto-Adaptive | v.2026")
 
@@ -45,7 +35,6 @@ if "GOOGLE_API_KEY" not in st.secrets:
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
 # --- 3. CARGA DE ARCHIVOS ---
-# El key dinámico permite resetear el componente
 files = st.file_uploader(
     "Sube hasta 5 archivos RUT (PDF)", 
     type="pdf", 
@@ -54,37 +43,32 @@ files = st.file_uploader(
 )
 
 if files and len(files) > 5:
-    st.error("⚠️ El límite del plan gratuito es de 5 archivos por tanda.")
+    st.error("⚠️ El límite del plan gratuito es de 5 archivos.")
     st.stop()
 
 if files and st.button("🚀 Iniciar Procesamiento Seguro"):
     resultados = []
     model = None
     
-    # --- AUTO-DETECCIÓN DE MODELO (Solución Error 404) ---
+    # AUTO-DETECCIÓN DE MODELO
     try:
-        # Listamos modelos disponibles para tu API Key en Colombia
         modelos_disponibles = [m.name for m in genai.list_models() 
                               if 'generateContent' in m.supported_generation_methods 
                               and 'flash' in m.name.lower()]
-        
         if modelos_disponibles:
-            # Seleccionamos el más reciente (generalmente el primero de la lista)
             nombre_modelo = modelos_disponibles[0]
             model = genai.GenerativeModel(nombre_modelo)
             st.toast(f"Conectado a: {nombre_modelo}", icon="✅")
         else:
-            st.error("Tu API Key no tiene acceso a modelos compatibles. Revisa AI Studio.")
+            st.error("No se encontraron modelos compatibles.")
             st.stop()
     except Exception as e:
-        st.error(f"Error de conexión: Verifica tu API KEY. {str(e)[:100]}")
+        st.error(f"Error de conexión: {str(e)[:100]}")
         st.stop()
 
-    # --- BUCLE DE PROCESAMIENTO ---
     for i, f in enumerate(files):
         with st.spinner(f"Analizando {f.name} ({i+1}/{len(files)})..."):
             try:
-                # PAUSA ANTI-BLOQUEO (Solución Error 429)
                 if i > 0:
                     time.sleep(10)
                 
@@ -92,23 +76,11 @@ if files and st.button("🚀 Iniciar Procesamiento Seguro"):
                 pdf_data = f.read()
                 
                 prompt = """
-                Analiza la PRIMERA PÁGINA de este RUT. Extrae los datos en este JSON plano:
-                {
-                  "NIT": "casilla 5",
-                  "Tipo_Contribuyente": "Persona Jurídica o Natural",
-                  "Razon_Social": "casilla 35",
-                  "Primer_Apellido": "casilla 31",
-                  "Segundo_Apellido": "casilla 32",
-                  "Primer_Nombre": "casilla 33",
-                  "Otros_Nombres": "casilla 34",
-                  "Ciudad": "casilla 40",
-                  "Direccion": "casilla 41",
-                  "Correo_Electronico": "casilla 42",
-                  "Telefono_1": "casilla 44",
-                  "Actividad_Economica": "casilla 46",
-                  "Codigo_Postal": "casilla 43"
-                }
-                Responde ÚNICAMENTE el objeto JSON. Si no puedes leer algo, deja "".
+                Analiza la PRIMERA PÁGINA de este RUT. Extrae en JSON:
+                NIT, Tipo_Contribuyente, Razon_Social, Primer_Apellido, Segundo_Apellido, 
+                Primer_Nombre, Otros_Nombres, Ciudad, Direccion, Correo_Electronico, 
+                Telefono_1, Actividad_Economica, Codigo_Postal.
+                Responde ÚNICAMENTE el JSON plano.
                 """
                 
                 response = model.generate_content([
@@ -116,13 +88,11 @@ if files and st.button("🚀 Iniciar Procesamiento Seguro"):
                     {'mime_type': 'application/pdf', 'data': pdf_data}
                 ])
                 
-                # Extraer JSON de la respuesta usando Regex
                 json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
                 
                 if json_match:
                     data = json.loads(json_match.group())
-                    
-                    # Unificación de nombre para la Columna 1
+                    # Unificación de nombre
                     if data.get("Razon_Social") and str(data["Razon_Social"]).strip():
                         data["Nombre_Final"] = data["Razon_Social"]
                     else:
@@ -132,24 +102,17 @@ if files and st.button("🚀 Iniciar Procesamiento Seguro"):
                     
                     resultados.append(data)
                 else:
-                    st.error(f"No se pudo estructurar la información de {f.name}")
-
+                    st.error(f"Error de lectura en {f.name}")
             except Exception as e:
-                error_msg = str(e)
-                if "429" in error_msg:
-                    st.error(f"⏳ Límite de cuota alcanzado en {f.name}. Espera un minuto.")
-                else:
-                    st.error(f"Error en {f.name}: Archivo protegido o ilegible.")
+                st.error(f"Error en {f.name}: {str(e)[:50]}")
 
-    # --- RESULTADOS Y EXPORTACIÓN ---
     if resultados:
-        # Estructura rígida de 21 columnas
-        df_raw = pd.DataFrame(resultados)
-        columnas_nombres = [f"Col_{i}" for i in range(1, 22)]
-        df_final = pd.DataFrame(columns=columnas_nombres)
+        # --- CONSTRUCCIÓN SEGURA DEL DATAFRAME (Sin KeyErrors) ---
+        # Definimos los encabezados finales
+        columnas_finales = [f"Col_{i}" for i in range(1, 22)]
         
-        # Mapeo de encabezados y posiciones
-        mapeo = {
+        # Mapeo de campos a sus posiciones (índice 0-20)
+        mapeo_posiciones = {
             0: ("Nombre_Completo", "Nombre_Final"),
             4: ("Direccion", "Direccion"),
             5: ("Codigo_Postal", "Codigo_Postal"),
@@ -160,19 +123,31 @@ if files and st.button("🚀 Iniciar Procesamiento Seguro"):
             10: ("Tipo_Contribuyente", "Tipo_Contribuyente"),
             20: ("Actividad_Economica", "Actividad_Economica")
         }
-        
-        for idx, (header, campo) in mapeo.items():
-            if campo in df_raw.columns:
-                df_final.iloc[:, idx] = df_raw[campo]
-            df_final.columns.values[idx] = header
-        
-        # Limpieza de actividad (solo números)
+
+        # Creamos una lista de diccionarios para el nuevo DataFrame
+        filas_limpias = []
+        for res in resultados:
+            fila = [""] * 21 # Fila vacía de 21 espacios
+            for idx, (nombre_header, campo_json) in mapeo_posiciones.items():
+                fila[idx] = res.get(campo_json, "")
+            filas_limpias.append(fila)
+
+        # Creamos el DataFrame final con los nombres de columnas ya definidos
+        nombres_headers = [f"Col_{i}" for i in range(1, 22)]
+        for idx, (nombre_header, _) in mapeo_posiciones.items():
+            nombres_headers[idx] = nombre_header
+
+        df_final = pd.DataFrame(filas_limpias, columns=nombres_headers)
+
+        # Limpieza de actividad
         if "Actividad_Economica" in df_final.columns:
             df_final["Actividad_Economica"] = df_final["Actividad_Economica"].apply(
                 lambda x: "".join(re.findall(r'\d+', str(x)))
             )
 
         st.success("✅ Extracción completada.")
+        
+        # Mostramos el DataFrame (Esto ya no debería dar KeyError)
         st.dataframe(df_final)
         
         # Generación de Excel
@@ -183,6 +158,6 @@ if files and st.button("🚀 Iniciar Procesamiento Seguro"):
         st.download_button(
             label="📥 Descargar Excel Estructurado",
             data=buf.getvalue(),
-            file_name="RUT_Extraido_Final.xlsx",
+            file_name="RUT_Extraido.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )

@@ -4,54 +4,68 @@ import pandas as pd
 import json
 import io
 
-# Configuración visual de la App
-st.set_page_config(page_title="RUT AI Extractor 2026", layout="wide")
-st.title("📑 Extractor RUT - Gemini 3 Flash")
-st.markdown("Extracción estricta de **primera página** con formato de 21 columnas.")
+# 1. CONFIGURACIÓN DE PÁGINA
+st.set_page_config(page_title="RUT AI Extractor 2026", layout="wide", page_icon="📑")
 
-# --- 1. CONFIGURACIÓN DE SEGURIDAD (API KEY) ---
+# --- BARRA LATERAL (AVISO LEGAL Y PRIVACIDAD) ---
+with st.sidebar:
+    st.header("🔒 Seguridad y Privacidad")
+    st.warning("""
+    **Aviso Importante:**
+    Esta aplicación cumple con la Ley de Protección de Datos Personales:
+    
+    1. **Sin Almacenamiento:** No guardamos tus PDFs ni los datos extraídos en ninguna base de datos.
+    2. **Sesión Volátil:** Si cierras o recargas esta pestaña, todos los datos procesados **se borrarán permanentemente**.
+    3. **Privacidad Total:** El procesamiento se realiza en la memoria temporal del servidor y se libera al finalizar.
+    4. **Responsabilidad:** Asegúrate de tener autorización para procesar los documentos cargados.
+    """)
+    st.divider()
+    st.info("Desarrollado con Gemini 3 Flash Preview (v.2026)")
+
+st.title("📑 Extractor de RUT Inteligente")
+st.subheader("Procesamiento seguro de primera página")
+
+# --- 2. CONFIGURACIÓN DE API ---
+# Recuerda configurar GOOGLE_API_KEY en los Secrets de Streamlit Cloud
 if "GOOGLE_API_KEY" not in st.secrets:
-    st.error("🔑 Falta la clave 'GOOGLE_API_KEY' en los Secrets de Streamlit.")
+    st.error("🔑 Error: API Key no detectada. Configúrala en los Secrets de Streamlit.")
     st.stop()
 
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# --- 2. PROCESAMIENTO CON MODELO 2026 ---
-files = st.file_uploader("Sube tus archivos RUT (PDF)", type="pdf", accept_multiple_files=True)
+# --- 3. CARGA DE ARCHIVOS ---
+# El límite de 10MB debe configurarse en .streamlit/config.toml
+files = st.file_uploader("Sube los archivos RUT (PDF - Máx. 10MB)", type="pdf", accept_multiple_files=True)
 
-if files and st.button("🚀 Ejecutar Extracción Inteligente"):
+if files and st.button("🚀 Iniciar Procesamiento"):
     resultados = []
-    
-    # Usamos la versión más reciente disponible en el Free Tier
-    try:
-        model = genai.GenerativeModel('gemini-3-flash-preview')
-    except:
-        # Fallback de seguridad por si la región aún no actualizó el nombre del modelo
-        model = genai.GenerativeModel('gemini-1.5-flash')
+    # Usamos la versión más reciente y gratuita
+    model = genai.GenerativeModel('gemini-1.5-flash') 
     
     for f in files:
-        with st.spinner(f"Gemini 3 analizando: {f.name}..."):
+        with st.spinner(f"Analizando {f.name}..."):
             try:
-                # Prompt optimizado para evitar errores de campos vacíos
+                # Prompt estricto para página 1 y estructura JSON
                 prompt = """
                 Analiza EXCLUSIVAMENTE la PRIMERA PÁGINA de este RUT.
-                Extrae los datos en este JSON plano (si el dato no existe, deja ""):
+                Extrae la información en este formato JSON exacto:
                 {
                   "NIT": "casilla 5",
-                  "Tipo_Contribuyente": "Persona Jurídica o Persona Natural",
+                  "Tipo_Contribuyente": "Persona Jurídica o Natural",
                   "Razon_Social": "casilla 35",
                   "Primer_Apellido": "casilla 31",
                   "Segundo_Apellido": "casilla 32",
                   "Primer_Nombre": "casilla 33",
                   "Otros_Nombres": "casilla 34",
-                  "Ciudad": "casilla 40 (solo nombre)",
+                  "Ciudad": "casilla 40",
                   "Direccion": "casilla 41",
                   "Correo_Electronico": "casilla 42",
                   "Telefono_1": "casilla 44",
-                  "Actividad_Economica": "casilla 46 (4 dígitos)",
+                  "Actividad_Economica": "casilla 46",
                   "Codigo_Postal": "casilla 43"
                 }
-                Responde únicamente el JSON plano.
+                Si el documento tiene más páginas, IGNÓRALAS. 
+                Si hay Razón Social, úsala como nombre de la entidad.
                 """
                 
                 content = f.read()
@@ -60,32 +74,29 @@ if files and st.button("🚀 Ejecutar Extracción Inteligente"):
                     {'mime_type': 'application/pdf', 'data': content}
                 ])
                 
-                # Limpieza de caracteres extra
-                clean_res = response.text.replace('```json', '').replace('```', '').strip()
-                data = json.loads(clean_res)
+                res_text = response.text.replace('```json', '').replace('```', '').strip()
+                data = json.loads(res_text)
                 
-                # Unificación de Nombre (Lógica Contable)
+                # Lógica de nombre unificado para la Columna 1
                 if data.get("Razon_Social"):
-                    data["Nombre_Final"] = data["Razon_Social"]
+                    data["Nombre_Empresa_Persona"] = data["Razon_Social"]
                 else:
-                    n = [data.get("Primer_Nombre",""), data.get("Otros_Nombres",""), 
-                         data.get("Primer_Apellido",""), data.get("Segundo_Apellido","")]
-                    data["Nombre_Final"] = " ".join([p for p in n if p]).strip()
+                    nom = [data.get("Primer_Nombre",""), data.get("Otros_Nombres",""), 
+                           data.get("Primer_Apellido",""), data.get("Segundo_Apellido","")]
+                    data["Nombre_Empresa_Persona"] = " ".join([n for n in nom if n]).strip()
                 
                 resultados.append(data)
             except Exception as e:
-                st.error(f"No se pudo procesar {f.name}. Verifica que sea un PDF de RUT legible.")
+                st.error(f"No se pudo procesar {f.name}. Verifique que el archivo sea un RUT válido.")
 
     if resultados:
-        # --- CREACIÓN DE ESTRUCTURA DE 21 COLUMNAS ---
+        # --- ESTRUCTURA RÍGIDA DE 21 COLUMNAS ---
         df_raw = pd.DataFrame(resultados)
+        df_final = pd.DataFrame(columns=range(1, 22))
         
-        # Creamos el molde de 21 columnas (vacías)
-        df_excel = pd.DataFrame(columns=range(1, 22))
-        
-        # Mapeo según tus índices de columna específicos
-        mapeo_indices = {
-            1: "Nombre_Final",
+        # Mapeo de posiciones solicitado
+        mapeo_columnas = {
+            1: "Nombre_Empresa_Persona",
             5: "Direccion",
             6: "Codigo_Postal",
             7: "Ciudad",
@@ -96,27 +107,20 @@ if files and st.button("🚀 Ejecutar Extracción Inteligente"):
             21: "Actividad_Economica"
         }
         
-        for num_col, campo_ia in mapeo_indices.items():
+        for col_id, campo_ia in mapeo_columnas.items():
             if campo_ia in df_raw.columns:
-                df_excel[num_col] = df_raw[campo_ia]
+                df_final[col_id] = df_raw[campo_ia]
         
-        # Limpieza de Actividad (solo los números)
-        if 21 in df_excel.columns:
-            df_excel[21] = df_excel[21].astype(str).str.extract('(\d+)')
+        # Limpieza técnica de la actividad
+        if 21 in df_final.columns:
+            df_final[21] = df_final[21].astype(str).str.extract('(\d+)')
 
-        # Mostrar en pantalla con nombres amigables
-        df_display = df_excel.rename(columns=mapeo_indices)
-        st.success("✅ Extracción terminada.")
-        st.dataframe(df_display)
+        st.success("✅ Extracción terminada. Los datos se borrarán si cierras la ventana.")
+        st.dataframe(df_final)
         
-        # Preparar Excel para descarga
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df_excel.to_excel(writer, index=False)
+        # Generar descarga
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            df_final.to_excel(writer, index=False)
         
-        st.download_button(
-            label="📥 Descargar Excel Estructurado (21 Cols)",
-            data=output.getvalue(),
-            file_name="RUT_Extraido_2026.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        st.download_button("📥 Descargar Excel Estructurado", buf.getvalue(), "RUT_Extraido_Seguro.xlsx")

@@ -14,20 +14,17 @@ if "GOOGLE_API_KEY" not in st.secrets:
 
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# --- 2. MOTOR DE IA CON SELECCIÓN INTELIGENTE ---
+# --- 2. SELECCIÓN DE MODELO ---
 @st.cache_resource
 def get_model():
-    # Buscamos modelos que soporten generación de contenido y archivos
     available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    # Prioridades para 2026
-    opciones = ['models/gemini-1.5-pro', 'models/gemini-1.5-pro-latest', 'models/gemini-pro']
+    opciones = ['models/gemini-1.5-pro', 'models/gemini-1.5-flash']
     for opcion in opciones:
         if opcion in available_models:
             return genai.GenerativeModel(opcion)
-    # Si no encuentra ninguno de los anteriores, usa el primero disponible
     return genai.GenerativeModel(available_models[0])
 
-# --- 3. INTERFAZ Y LÓGICA ---
+# --- 3. INTERFAZ Y PROCESAMIENTO ---
 files = st.file_uploader("Sube tus RUTs (PDF)", type="pdf", accept_multiple_files=True)
 
 if files and st.button("🚀 Procesar Documentos"):
@@ -37,9 +34,9 @@ if files and st.button("🚀 Procesar Documentos"):
     for f in files:
         with st.spinner(f"Analizando {f.name}..."):
             try:
-                # Prompt pulido para detectar ambos tipos de contribuyente
+                # Prompt reforzado para no omitir campos clave
                 prompt = """
-                Analiza este RUT y extrae los datos en este JSON exacto:
+                Analiza este RUT y extrae la información en este formato JSON estricto:
                 {
                   "NIT": "casilla 5",
                   "Tipo_Contribuyente": "Persona Jurídica o Persona Natural",
@@ -48,11 +45,18 @@ if files and st.button("🚀 Procesar Documentos"):
                   "Segundo_Apellido": "casilla 32",
                   "Primer_Nombre": "casilla 33",
                   "Otros_Nombres": "casilla 34",
-                  "Ciudad": "casilla 40 (solo el nombre)",
-                  "Actividad": "casilla 46 (solo los 4 números)"
+                  "Pais": "casilla 38",
+                  "Departamento": "casilla 39 (solo texto)",
+                  "Ciudad": "casilla 40 (solo texto)",
+                  "Direccion": "casilla 41",
+                  "Correo_Electronico": "casilla 42",
+                  "Telefono_1": "casilla 44",
+                  "Telefono_2": "casilla 45",
+                  "Actividad_Economica": "casilla 46 (4 dígitos)",
+                  "Codigo_Postal": "casilla 43"
                 }
-                IMPORTANTE: Si la casilla 35 tiene datos (Empresa), Razon_Social es prioritaria.
-                Responde ÚNICAMENTE el JSON plano.
+                IMPORTANTE: No omitas ningún campo. Si la casilla está vacía en el PDF, devuelve un texto vacío "".
+                Responde ÚNICAMENTE el JSON.
                 """
                 
                 content = f.read()
@@ -61,33 +65,48 @@ if files and st.button("🚀 Procesar Documentos"):
                     {'mime_type': 'application/pdf', 'data': content}
                 ])
                 
-                # Limpiador de Markdown
+                # Limpieza de JSON
                 res_text = response.text.replace('```json', '').replace('```', '').strip()
                 data = json.loads(res_text)
                 
-                # Unificación de Nombre para el Excel
+                # Unificación de Nombre (Lógica para Jurídica vs Natural)
                 if data.get("Razon_Social"):
-                    data["Nombre_Completo"] = data["Razon_Social"]
+                    data["Nombre_Completo_o_Empresa"] = data["Razon_Social"]
                 else:
-                    n = [data.get("Primer_Nombre",""), data.get("Otros_Nombres",""), 
-                         data.get("Primer_Apellido",""), data.get("Segundo_Apellido","")]
-                    data["Nombre_Completo"] = " ".join([p for p in n if p]).strip()
+                    partes = [data.get("Primer_Nombre",""), data.get("Otros_Nombres",""), 
+                              data.get("Primer_Apellido",""), data.get("Segundo_Apellido","")]
+                    data["Nombre_Completo_o_Empresa"] = " ".join([p for p in partes if p]).strip()
                 
                 resultados.append(data)
             except Exception as e:
-                st.error(f"Error en {f.name}: El modelo no está disponible o el archivo es ilegible.")
+                st.error(f"Error en {f.name}: {str(e)}")
 
     if resultados:
         df = pd.DataFrame(resultados)
-        # Columnas finales ordenadas
-        cols_finales = ["NIT", "Nombre_Completo", "Tipo_Contribuyente", "Ciudad", "Actividad"]
-        df_display = df[[c for c in cols_finales if c in df.columns]]
         
-        st.success("✅ Procesamiento terminado.")
-        st.dataframe(df_display)
+        # Definimos el orden de las columnas para asegurar que aparezcan las que faltaban
+        columnas_orden = [
+            "NIT", 
+            "Nombre_Completo_o_Empresa", 
+            "Tipo_Contribuyente", 
+            "Departamento", 
+            "Ciudad", 
+            "Direccion", 
+            "Correo_Electronico", 
+            "Telefono_1", 
+            "Telefono_2", 
+            "Actividad_Economica",
+            "Codigo_Postal"
+        ]
+        
+        # Filtramos solo las columnas que logramos extraer
+        df_final = df[[c for c in columnas_orden if c in df.columns]]
+        
+        st.success("✅ Extracción terminada con todas las columnas.")
+        st.dataframe(df_final)
         
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
+            df_final.to_excel(writer, index=False)
         
-        st.download_button("📥 Descargar Excel", output.getvalue(), "RUT_Procesado.xlsx")
+        st.download_button("📥 Descargar Excel Completo", output.getvalue(), "RUT_Consolidado_Final.xlsx")
